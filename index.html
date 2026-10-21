@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html class="h-full" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Successor</title>
+
+    <!-- Google Fonts & Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      rel="stylesheet"
+    />
+
+    <style>
+      @layer base {
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+        }
+        body {
+          overscroll-behavior: none;
+        }
+      }
+      ::-webkit-scrollbar {
+        display: none;
+      }
+    </style>
+
+    <!-- Tailwind CSS Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary-container": "#fffbff",
+              "on-tertiary": "#ffffff",
+              outline: "#767586",
+              "surface-dim": "#d2d9f4",
+              "error-container": "#ffdad6",
+              "surface-container-highest": "#dae2fd",
+              "secondary-fixed": "#6ffbbe",
+              "inverse-on-surface": "#eef0ff",
+              "secondary-fixed-dim": "#4edea3",
+              "surface-variant": "#dae2fd",
+              "surface-container-high": "#e2e7ff",
+              "surface-container-low": "#f2f3ff",
+              "tertiary-fixed": "#ffddb8",
+              "secondary-container": "#6cf8bb",
+              "tertiary-container": "#a36700",
+              "on-tertiary-fixed-variant": "#653e00",
+              "on-background": "#131b2e",
+              "surface-tint": "#494bd6",
+              tertiary: "#825100",
+              error: "#ba1a1a",
+              "on-error": "#ffffff",
+              "primary-fixed": "#e1e0ff",
+              "on-secondary-container": "#00714d",
+              "on-primary-fixed-variant": "#2f2ebe",
+              "inverse-surface": "#283044",
+              surface: "#faf8ff",
+              background: "#faf8ff",
+              "on-error-container": "#93000a",
+              "surface-container-lowest": "#ffffff",
+              "on-secondary": "#ffffff",
+              "surface-bright": "#faf8ff",
+              "surface-container": "#eaedff",
+              "on-primary": "#ffffff",
+              "on-tertiary-fixed": "#2a1700",
+              "primary-container": "#6063ee",
+              secondary: "#006c49",
+              "on-tertiary-container": "#fffbff",
+              "on-secondary-fixed": "#002113",
+              "on-surface": "#131b2e",
+              "on-primary-fixed": "#07006c",
+              primary: "#4648d4",
+              "outline-variant": "#c7c4d7",
+              "primary-fixed-dim": "#c0c1ff",
+              "on-secondary-fixed-variant": "#005236",
+              "on-surface-variant": "#464554",
+              "inverse-primary": "#c0c1ff",
+              "tertiary-fixed-dim": "#ffb95f",
+            },
+            borderRadius: {
+              DEFAULT: "0.25rem",
+              lg: "0.5rem",
+              xl: "0.75rem",
+              full: "9999px",
+            },
+            spacing: {
+              "gutter-mobile": "0.75rem",
+              "space-md": "1rem",
+              "space-xl": "2.25rem",
+              "margin-mobile": "1rem",
+              margin: "2rem",
+              "space-lg": "1.5rem",
+              "space-xs": "0.25rem",
+              "space-sm": "0.5rem",
+              gutter: "1.25rem",
+            },
+            fontFamily: {
+              "body-lg": ["Inter", "sans-serif"],
+              "body-sm": ["Inter", "sans-serif"],
+              "headline-xl-mobile": ["Plus Jakarta Sans", "sans-serif"],
+              "label-md": ["Inter", "sans-serif"],
+              "headline-sm": ["Plus Jakarta Sans", "sans-serif"],
+              "headline-lg-mobile": ["Plus Jakarta Sans", "sans-serif"],
+              "headline-xl": ["Plus Jakarta Sans", "sans-serif"],
+              "headline-lg": ["Plus Jakarta Sans", "sans-serif"],
+              "label-sm": ["Inter", "sans-serif"],
+              "headline-md": ["Plus Jakarta Sans", "sans-serif"],
+              "body-md": ["Inter", "sans-serif"],
+              "tabular-mono": ["Inter", "monospace"],
+            },
+            fontSize: {
+              "body-lg": ["16px", { lineHeight: "24px", letterSpacing: "-0.005em", fontWeight: "400" }],
+              "body-sm": ["13px", { lineHeight: "18px", letterSpacing: "0em", fontWeight: "400" }],
+              "headline-xl-mobile": ["30px", { lineHeight: "38px", letterSpacing: "-0.02em", fontWeight: "700" }],
+              "label-md": ["12px", { lineHeight: "16px", letterSpacing: "0.02em", fontWeight: "600" }],
+              "headline-sm": ["18px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+              "headline-lg-mobile": ["24px", { lineHeight: "32px", letterSpacing: "-0.015em", fontWeight: "600" }],
+              "headline-xl": ["40px", { lineHeight: "48px", letterSpacing: "-0.025em", fontWeight: "700" }],
+              "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "600" }],
+              "label-sm": ["11px", { lineHeight: "14px", letterSpacing: "0.04em", fontWeight: "500" }],
+              "headline-md": ["22px", { lineHeight: "28px", letterSpacing: "-0.015em", fontWeight: "600" }],
+              "body-md": ["14px", { lineHeight: "20px", letterSpacing: "0em", fontWeight: "400" }],
+              "tabular-mono": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "500" }],
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-surface font-body-md text-body-md text-on-surface antialiased selection:bg-primary-fixed selection:text-on-primary-fixed min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
