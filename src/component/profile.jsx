@@ -50,7 +50,7 @@ export default function Profile() {
   // Productivity Rhythms States
   const [chronotype, setChronotype] = useState("lark"); // 'lark' | 'falcon' | 'owl'
   const [focusDuration, setFocusDuration] = useState("25"); // '25' | '50' | '90'
-  const [dailyTargetBlocks, setDailyTargetBlocks] = useState(4);
+  const [dailyTargetBlocks, setDailyTargetBlocks] = useState(3); // 25 = 3, 50 = 5, 90 = 8
   const [breakDuration, setBreakDuration] = useState("5"); // '5' | '10' | '15'
 
   // Habits & Rituals States
@@ -153,7 +153,13 @@ export default function Profile() {
       if (userProfile.websiteUrl !== undefined) setWebsiteUrl(userProfile.websiteUrl);
       if (userProfile.chronotype !== undefined) setChronotype(userProfile.chronotype);
       if (userProfile.focusDuration !== undefined) setFocusDuration(userProfile.focusDuration);
-      if (userProfile.dailyTargetBlocks !== undefined) setDailyTargetBlocks(userProfile.dailyTargetBlocks);
+      if (userProfile.dailyTargetBlocks !== undefined) {
+        setDailyTargetBlocks(userProfile.dailyTargetBlocks);
+      } else if (userProfile.focusDuration !== undefined) {
+        if (userProfile.focusDuration === "25") setDailyTargetBlocks(3);
+        else if (userProfile.focusDuration === "50") setDailyTargetBlocks(5);
+        else if (userProfile.focusDuration === "90") setDailyTargetBlocks(8);
+      }
       if (userProfile.breakDuration !== undefined) setBreakDuration(userProfile.breakDuration);
       if (userProfile.defaultProject !== undefined) setDefaultProject(userProfile.defaultProject);
       if (typeof userProfile.rolloverEnabled === "boolean") setRolloverEnabled(userProfile.rolloverEnabled);
@@ -461,8 +467,8 @@ export default function Profile() {
     },
     {
       id: "pref-duration",
-      title: "Default Focus Session Duration",
-      subtitle: `${focusDuration} min intervals (Classic / Deep Block / Flow)`,
+      title: "Default Focus Session Duration & Block Count",
+      subtitle: `${focusDuration} min (${focusDuration === "25" ? "3" : focusDuration === "50" ? "5" : "8"} blocks target) • 25m = 3 blocks, 50m = 5 blocks, 90m = 8 blocks`,
       icon: "timer",
       tab: "rhythms",
       sectionId: "section-focus-duration",
@@ -594,6 +600,14 @@ export default function Profile() {
       icon: "description",
       tab: "data",
       sectionId: "section-data-export",
+    },
+    {
+      id: "pref-auto-update",
+      title: "Software Updates & GitHub Releases",
+      subtitle: "Check GitHub Releases for new updates • Channel: Raamgopal8/Successor",
+      icon: "system_update",
+      tab: "data",
+      sectionId: "section-app-updates",
     },
   ];
 
@@ -1615,13 +1629,34 @@ export default function Profile() {
                   {/* Focus Duration Selection Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-space-sm pt-2">
                     {[
-                      { val: "25", label: "25 min", sub: "Classic Pomodoro", desc: "Short agile blocks for rapid task turnaround" },
-                      { val: "50", label: "50 min", sub: "Deep Block (Recommended)", desc: "Optimal cognitive sweet spot for complex engineering" },
-                      { val: "90", label: "90 min", sub: "Flow State Immersion", desc: "Full ultradian rhythm immersion for deep architecture" },
+                      {
+                        val: "25",
+                        label: "25 min",
+                        blocks: 3,
+                        sub: "Classic Pomodoro",
+                        desc: "Short agile blocks for rapid task turnaround • 3 blocks target",
+                      },
+                      {
+                        val: "50",
+                        label: "50 min",
+                        blocks: 5,
+                        sub: "Deep Block (Recommended)",
+                        desc: "Optimal cognitive sweet spot for complex engineering • 5 blocks target",
+                      },
+                      {
+                        val: "90",
+                        label: "90 min",
+                        blocks: 8,
+                        sub: "Flow State Immersion",
+                        desc: "Full ultradian rhythm immersion for deep architecture • 8 blocks target",
+                      },
                     ].map((dur) => (
                       <div
                         key={dur.val}
-                        onClick={() => setFocusDuration(dur.val)}
+                        onClick={() => {
+                          setFocusDuration(dur.val);
+                          setDailyTargetBlocks(dur.blocks);
+                        }}
                         className={`flex flex-col p-space-md rounded-xl cursor-pointer transition-all border ${
                           focusDuration === dur.val
                             ? "bg-primary-fixed text-on-primary-fixed border-primary font-semibold shadow-md ring-2 ring-primary/30"
@@ -1629,12 +1664,17 @@ export default function Profile() {
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-tabular-mono text-headline-sm font-bold">{dur.label}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-tabular-mono text-headline-sm font-bold">{dur.label}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-tabular-mono font-bold bg-surface-container-highest/80 text-on-surface-variant">
+                              {dur.blocks} Blocks
+                            </span>
+                          </div>
                           <span className="material-symbols-outlined text-[18px]">
                             {focusDuration === dur.val ? "check_circle" : "radio_button_unchecked"}
                           </span>
                         </div>
-                        <span className="font-label-sm text-label-sm mt-1">{dur.sub}</span>
+                        <span className="font-label-sm text-label-sm mt-1">{dur.sub} ({dur.blocks} Blocks)</span>
                         <p className="font-body-sm text-body-sm text-outline mt-2 leading-relaxed">{dur.desc}</p>
                       </div>
                     ))}
@@ -1664,12 +1704,39 @@ export default function Profile() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => setDailyTargetBlocks((p) => Math.min(12, p + 1))}
+                          onClick={() => setDailyTargetBlocks((p) => Math.min(16, p + 1))}
                           className="w-9 h-9 rounded-lg bg-surface-container-highest hover:bg-surface-dim flex items-center justify-center font-bold text-on-surface cursor-pointer"
                         >
                           +
                         </button>
                       </div>
+
+                      {/* Presets: 25 = 3, 50 = 5, 90 = 8 */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[11px] text-outline font-medium">Presets:</span>
+                        {[
+                          { dur: "25", blocks: 3, label: "3 Blocks (25m)" },
+                          { dur: "50", blocks: 5, label: "5 Blocks (50m)" },
+                          { dur: "90", blocks: 8, label: "8 Blocks (90m)" },
+                        ].map((preset) => (
+                          <button
+                            key={preset.blocks}
+                            type="button"
+                            onClick={() => {
+                              setDailyTargetBlocks(preset.blocks);
+                              setFocusDuration(preset.dur);
+                            }}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-tabular-mono transition-all cursor-pointer border ${
+                              dailyTargetBlocks === preset.blocks && focusDuration === preset.dur
+                                ? "bg-primary text-on-primary font-bold border-primary shadow-xs"
+                                : "bg-surface-container-highest hover:bg-surface-container text-on-surface-variant border-transparent"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+
                       <p className="font-label-sm text-label-sm text-outline">
                         Estimated target: ~{(dailyTargetBlocks * parseInt(focusDuration || 25, 10) / 60).toFixed(1)} hours of deep work daily
                       </p>
@@ -2703,6 +2770,65 @@ export default function Profile() {
                         Purge Local Cache
                       </button>
                     </div>
+                  </div>
+                </section>
+
+                {/* Software Updates & GitHub Releases Card */}
+                <section
+                  id="section-app-updates"
+                  className="bg-surface-container-lowest rounded-xl p-space-lg shadow-[0_2px_12px_rgba(15,23,42,0.04)] flex flex-col gap-space-md border border-outline-variant/15"
+                >
+                  <div className="flex items-center justify-between pb-space-xs border-b border-surface-container">
+                    <div className="flex items-center gap-space-xs">
+                      <span className="p-2 rounded-lg bg-surface-container-high text-primary material-symbols-outlined text-[20px]">
+                        system_update
+                      </span>
+                      <div>
+                        <h2 className="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">
+                          Software Updates &amp; GitHub Releases
+                        </h2>
+                        <p className="font-body-sm text-body-sm text-outline">
+                          Automatic over-the-air updates verified by cryptographic minisign signature
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-tabular-mono text-label-sm font-bold">
+                      v0.1.1 (Stable)
+                    </span>
+                  </div>
+
+                  <div className="p-space-md rounded-xl bg-surface-container-low border border-outline-variant/10 flex flex-col sm:flex-row items-center justify-between gap-space-md">
+                    <div className="flex items-center gap-space-md min-w-0">
+                      <div className="w-12 h-12 rounded-xl bg-surface-container-lowest shadow-sm flex items-center justify-center text-primary flex-shrink-0">
+                        <span className="material-symbols-outlined text-[24px]">cloud_sync</span>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-body-md font-semibold text-on-surface">
+                            Release Channel: GitHub Releases
+                          </span>
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-secondary" />
+                          </span>
+                        </div>
+                        <p className="font-tabular-mono text-label-sm text-outline truncate mt-0.5">
+                          Repo: Raamgopal8/Successor • Endpoint: releases/latest/download/latest.json
+                        </p>
+                        <p className="text-[11px] text-on-surface-variant mt-0.5">
+                          Automatically checks on application startup and installs background updates.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent("successor:check-update"))}
+                      className="px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md font-semibold transition-all shadow-sm cursor-pointer flex items-center gap-2 flex-shrink-0"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">update</span>
+                      <span>Check for Updates</span>
+                    </button>
                   </div>
                 </section>
               </div>

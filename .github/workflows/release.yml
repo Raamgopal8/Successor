@@ -1,20 +1,63 @@
-name: Release Windows App
+name: Release Desktop App & Auto-Updater
+
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      tagName:
+        description: 'Release Tag (e.g. v0.1.2)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+          - platform: 'ubuntu-22.04'
+            target: 'x86_64-unknown-linux-gnu'
+
+    runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 26
-      - run: npm install
-      - uses: tauri-apps/tauri-action@v0
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Node dependencies
+        run: npm ci || npm install
+
+      - name: Build and Publish Release with Tauri Action
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v0.1.0
-          releaseName: "Successor v0.1.0"
-          releaseBody: "Native Windows Release"
+          tagName: ${{ github.ref_name || inputs.tagName || 'app-v__VERSION__' }}
+          releaseName: 'Successor ${{ github.ref_name || inputs.tagName || 'v__VERSION__' }}'
+          releaseBody: 'Successor desktop release with auto-updater manifest and cryptographic signature.'
+          includeUpdaterJson: true

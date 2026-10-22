@@ -6,6 +6,7 @@ import Profile from "./component/profile";
 import Analytics from "./component/analytics";
 import Privacy from "./component/privacy";
 import Terms from "./component/terms";
+import UpdateModal from "./component/UpdateModal";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AppProvider } from "./context/AppContext";
 
@@ -13,6 +14,7 @@ function App() {
   return (
     <AppProvider>
       <Router>
+        <UpdateModal />
         <Routes>
           <Route path="/" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
