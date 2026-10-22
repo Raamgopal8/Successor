@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tagName:
-        description: 'Release Tag (e.g. v0.1.2)'
+        description: 'Release Tag (e.g. v0.1.1)'
         required: false
         default: ''
 
@@ -55,9 +55,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name || inputs.tagName || 'app-v__VERSION__' }}
-          releaseName: 'Successor ${{ github.ref_name || inputs.tagName || 'v__VERSION__' }}'
-          releaseBody: 'Successor desktop release with auto-updater manifest and cryptographic signature.'
-          includeUpdaterJson: true
+          tagName: v__VERSION__
+          releaseName: "Successor v__VERSION__"
+          releaseBody: "Successor desktop release with auto-updater manifest and cryptographic signature."
+          releaseDraft: false
+          prerelease: false
