@@ -50,14 +50,23 @@ jobs:
       - name: Install Node dependencies
         run: npm ci || npm install
 
+      - name: Configure Tauri Signing Key
+        shell: bash
+        run: |
+          # Sanitize secret key: strip any newlines (ASCII 10), carriage returns, and spaces
+          RAW_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          CLEAN_KEY=$(echo -n "$RAW_KEY" | tr -d '\r\n ')
+          echo "TAURI_SIGNING_PRIVATE_KEY=$CLEAN_KEY" >> "$GITHUB_ENV"
+          echo "TAURI_PRIVATE_KEY=$CLEAN_KEY" >> "$GITHUB_ENV"
+          if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "TAURI_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Build and Publish Release with Tauri Action
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: "Successor v__VERSION__"
