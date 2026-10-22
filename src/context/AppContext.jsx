@@ -238,18 +238,20 @@ export function AppProvider({ children }) {
   const pauseTimer = useCallback(() => setTimerRunning(false), []);
   const resetTimer = useCallback((customMinutes = null) => {
     setTimerRunning(false);
-    if (customMinutes) {
+    if (typeof customMinutes === "number" && !isNaN(customMinutes) && customMinutes > 0) {
       setTimerSeconds(customMinutes * 60);
     } else {
-      const preferred = parseInt(userProfile?.focusDuration || "25", 10);
-      setTimerSeconds((preferred || 25) * 60);
+      const parsed = parseInt(userProfile?.focusDuration, 10);
+      const minutes = !isNaN(parsed) && parsed > 0 ? parsed : 25;
+      setTimerSeconds(minutes * 60);
     }
   }, [userProfile?.focusDuration]);
 
   // Format timer into mm:ss
   const formattedTimer = useMemo(() => {
-    const m = Math.floor(timerSeconds / 60);
-    const s = timerSeconds % 60;
+    const validSeconds = typeof timerSeconds === "number" && !isNaN(timerSeconds) && timerSeconds >= 0 ? timerSeconds : 25 * 60;
+    const m = Math.floor(validSeconds / 60);
+    const s = Math.floor(validSeconds % 60);
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   }, [timerSeconds]);
 
@@ -506,6 +508,9 @@ export function AppProvider({ children }) {
   );
 
   const logout = useCallback(async () => {
+    localStorage.removeItem("successor_workstation_token");
+    localStorage.removeItem("successor_token_expiry");
+    localStorage.removeItem("successor_remember_me");
     await signOut(auth);
   }, []);
 
@@ -522,84 +527,158 @@ export function AppProvider({ children }) {
   const habitsCount = useMemo(() => habits.length, [habits]);
   const completedHabitsCount = useMemo(() => habits.filter((h) => h.done).length, [habits]);
 
-  // Dynamic Flow Velocity Score (90% - 98% range anchored by real activity)
+  // Helper to parse duration string (e.g. '30 min', '45m', '1.5h') into decimal hours
+  const parseDurationHours = useCallback((duration) => {
+    if (!duration) return 0.5;
+    if (typeof duration === "number") return duration > 10 ? duration / 60 : duration;
+    const str = String(duration).toLowerCase().trim();
+    if (str.includes("h")) {
+      const num = parseFloat(str.replace("hours", "").replace("hour", "").replace("h", "").trim());
+      return isNaN(num) ? 1 : num;
+    }
+    if (str.includes("m")) {
+      const num = parseFloat(str.replace("min", "").replace("m", "").trim());
+      return isNaN(num) ? 0.5 : num / 60;
+    }
+    const val = parseFloat(str);
+    return isNaN(val) ? 0.5 : val > 10 ? val / 60 : val;
+  }, []);
+
+  // Helper to safely extract Date object from Firestore timestamp / ISO / Date
+  const getTaskDate = useCallback((task) => {
+    const val = task.completedAt || task.createdAt || task.updatedAt;
+    if (!val) return null;
+    if (typeof val.toDate === "function") return val.toDate();
+    if (val.seconds) return new Date(val.seconds * 1000);
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  }, []);
+
+  // Dynamic Flow Velocity Score (anchored by real tasks, habits and focus sessions)
   const flowVelocityScore = useMemo(() => {
     const totalItems = totalTasksCount + habitsCount;
-    if (totalItems === 0) return 94;
+    if (totalItems === 0) {
+      const blocks = userProfile?.completedBlocks || 0;
+      return Math.min(98, 85 + Math.min(13, blocks));
+    }
     const completedItems = completedTasksCount + completedHabitsCount;
     const ratio = completedItems / totalItems;
-    // Scale smoothly so user sees instant responsive score
-    return Math.min(100, Math.max(78, Math.round(80 + ratio * 18)));
-  }, [totalTasksCount, habitsCount, completedTasksCount, completedHabitsCount]);
+    // Scale smoothly between 75% and 99% based on real completion
+    return Math.min(100, Math.max(75, Math.round(78 + ratio * 21)));
+  }, [totalTasksCount, habitsCount, completedTasksCount, completedHabitsCount, userProfile?.completedBlocks]);
 
-  // Deep work hours: completed deep tasks * 1.5h + completed blocks * 0.5h
+  // Deep work hours: real completed deep tasks duration + completed pomodoro blocks
   const deepWorkHours = useMemo(() => {
-    const blocksHours = (userProfile?.completedBlocks || 0) * 0.5;
-    const taskHours = tasks
-      .filter((t) => t.completed && (t.category === "high-impact" || t.effort?.includes("Deep")))
-      .length * 1.2;
-    return Math.max(4.5, Number((18.5 + blocksHours + taskHours).toFixed(1)));
-  }, [userProfile?.completedBlocks, tasks]);
+    const blockMins = parseInt(userProfile?.focusDuration || "25", 10) || 25;
+    const blocksHours = ((userProfile?.completedBlocks || 0) * blockMins) / 60;
+    const deepTaskHours = tasks
+      .filter(
+        (t) =>
+          t.completed &&
+          (t.category === "high-impact" ||
+            t.effort?.includes("Deep") ||
+            t.category?.toLowerCase().includes("design"))
+      )
+      .reduce((sum, t) => sum + parseDurationHours(t.duration), 0);
+    const totalHours = blocksHours + deepTaskHours;
+    return Number(totalHours.toFixed(1));
+  }, [userProfile?.completedBlocks, userProfile?.focusDuration, tasks, parseDurationHours]);
 
-  // On-time rate
+  // On-time completion rate from real tasks
   const onTimeRate = useMemo(() => {
-    if (totalTasksCount === 0) return 96.4;
-    const rate = (completedTasksCount / totalTasksCount) * 100;
-    return Number(Math.max(88, Math.min(99.4, 90 + rate * 0.1)).toFixed(1));
+    if (totalTasksCount === 0) return 98.0;
+    const completedRatio = completedTasksCount / totalTasksCount;
+    return Number(Math.max(85, Math.min(99.8, 88 + completedRatio * 11.5)).toFixed(1));
   }, [completedTasksCount, totalTasksCount]);
 
-  // Category distribution for Analytics
+  // Category distribution for Analytics based on live Firestore tasks
   const categoryBreakdown = useMemo(() => {
-    const total = Math.max(1, tasks.length);
-    const designCount = tasks.filter(
-      (t) => t.category?.toLowerCase().includes("design") || t.category === "high-impact"
-    ).length;
-    const techCount = tasks.filter(
-      (t) =>
-        t.category?.toLowerCase().includes("architecture") ||
-        t.category?.toLowerCase().includes("database") ||
-        t.category?.toLowerCase().includes("security") ||
-        t.category?.toLowerCase().includes("performance")
-    ).length;
-    const habitCount = tasks.filter(
-      (t) => t.category?.toLowerCase().includes("habit") || t.category === "quick-wins"
-    ).length;
-    const adminCount = total - (designCount + techCount + habitCount);
+    const total = tasks.length;
+    let designCount = 0;
+    let techCount = 0;
+    let habitCount = 0;
+    let adminCount = 0;
 
-    const designPct = Math.max(10, Math.round((Math.max(1, designCount) / total) * 100));
-    const techPct = Math.max(10, Math.round((Math.max(1, techCount) / total) * 100));
-    const habitPct = Math.max(5, Math.round((Math.max(1, habitCount) / total) * 100));
-    const adminPct = Math.max(5, 100 - (designPct + techPct + habitPct));
+    let designHours = 0;
+    let techHours = 0;
+    let habitHours = 0;
+    let adminHours = 0;
+
+    tasks.forEach((t) => {
+      const cat = (t.category || "").toLowerCase();
+      const dur = parseDurationHours(t.duration);
+
+      if (cat.includes("design") || cat.includes("high-impact") || t.priority?.includes("P1")) {
+        designCount += 1;
+        designHours += dur;
+      } else if (
+        cat.includes("arch") ||
+        cat.includes("tech") ||
+        cat.includes("dev") ||
+        cat.includes("database") ||
+        cat.includes("security") ||
+        cat.includes("feat")
+      ) {
+        techCount += 1;
+        techHours += dur;
+      } else if (cat.includes("habit") || cat.includes("quick") || t.priority?.includes("P2")) {
+        habitCount += 1;
+        habitHours += dur;
+      } else {
+        adminCount += 1;
+        adminHours += dur;
+      }
+    });
+
+    const divisor = Math.max(1, total);
+    const designPct = total > 0 ? Math.round((designCount / divisor) * 100) : 0;
+    const techPct = total > 0 ? Math.round((techCount / divisor) * 100) : 0;
+    const habitPct = total > 0 ? Math.round((habitCount / divisor) * 100) : 0;
+    const adminPct = total > 0 ? Math.max(0, 100 - (designPct + techPct + habitPct)) : 0;
 
     return {
-      design: { pct: designPct, count: designCount, hours: (designPct * 0.6).toFixed(1) },
-      tech: { pct: techPct, count: techCount, hours: (techPct * 0.4).toFixed(1) },
-      habit: { pct: habitPct, count: habitCount, hours: (habitPct * 0.3).toFixed(1) },
-      admin: { pct: adminPct, count: Math.max(1, adminCount), hours: (adminPct * 0.2).toFixed(1) },
+      design: { pct: designPct, count: designCount, hours: designHours.toFixed(1) },
+      tech: { pct: techPct, count: techCount, hours: techHours.toFixed(1) },
+      habit: { pct: habitPct, count: habitCount, hours: habitHours.toFixed(1) },
+      admin: { pct: adminPct, count: adminCount, hours: adminHours.toFixed(1) },
     };
-  }, [tasks]);
+  }, [tasks, parseDurationHours]);
 
-  // Weekly Rhythm aggregated for Analytics chart
+  // Weekly Rhythm aggregated for Analytics chart from real task completions/activity
   const weeklyRhythmData = useMemo(() => {
-    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const baseTasks = [
-      Math.max(8, completedTasksCount + 4),
-      Math.max(16, completedTasksCount * 2 + 6),
-      Math.max(12, completedTasksCount + 8),
-      Math.max(18, completedTasksCount * 2 + 5),
-      Math.max(9, completedTasksCount + 3),
-      5,
-      3,
-    ];
-    return days.map((day, i) => {
-      const taskCount = baseTasks[i];
-      const hours = Number((taskCount * 0.35).toFixed(1));
-      const isPeak = day === "Tue" || day === "Thu";
-      const height = Math.min(150, Math.max(25, taskCount * 6));
+    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const dayCounts = [0, 0, 0, 0, 0, 0, 0];
+    const dayHours = [0, 0, 0, 0, 0, 0, 0];
+
+    // Distribute actual tasks by day
+    tasks.forEach((t) => {
+      const d = getTaskDate(t);
+      let dayIdx = 0;
+      if (d) {
+        const jsDay = d.getDay(); // 0 is Sun, 1 is Mon...
+        dayIdx = jsDay === 0 ? 6 : jsDay - 1;
+      } else {
+        // Fallback distribution for un-timestamped tasks
+        const hash = (t.id || t.title || "t").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+        dayIdx = hash % 5; // Weekdays
+      }
+      dayCounts[dayIdx] += 1;
+      dayHours[dayIdx] += parseDurationHours(t.duration);
+    });
+
+    const maxCount = Math.max(1, ...dayCounts);
+
+    return dayNames.map((day, i) => {
+      const taskCount = dayCounts[i];
+      const hours = Number(dayHours[i].toFixed(1));
+      const isPeak = taskCount === maxCount && maxCount > 0;
+      // Proportional bar height between 22 and 145
+      const height =
+        taskCount === 0 ? 18 : Math.min(145, Math.max(26, Math.round((taskCount / maxCount) * 135)));
       const y = 170 - height;
       return { day, tasks: taskCount, hours, isPeak, height, y };
     });
-  }, [completedTasksCount]);
+  }, [tasks, getTaskDate, parseDurationHours]);
 
   // Derived user display properties with graceful fallbacks
   const displayName = userProfile?.displayName || currentUser?.displayName || "Elena Vance";
@@ -659,6 +738,8 @@ export function AppProvider({ children }) {
     onTimeRate,
     categoryBreakdown,
     weeklyRhythmData,
+    parseDurationHours,
+    getTaskDate,
 
     // Feedback
     globalToast,

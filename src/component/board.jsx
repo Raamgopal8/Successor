@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import image from "../assets/logo.png";
 import { useApp } from "../context/AppContext";
@@ -7,7 +7,7 @@ const COLUMNS = [
   { id: "backlog", title: "Backlog", dotColor: "bg-outline", countBg: "bg-surface-container-highest" },
   { id: "ready", title: "Ready for Today", dotColor: "bg-primary", countBg: "bg-primary text-on-primary", isPrimary: true },
   { id: "in_progress", title: "In Progress", dotColor: "bg-tertiary animate-pulse", countBg: "bg-surface-container-highest" },
-  { id: "review", title: "Review & QA", dotColor: "bg-secondary-fixed-dim", countBg: "bg-surface-container-highest" },
+  { id: "review", title: "Review", dotColor: "bg-secondary-fixed-dim", countBg: "bg-surface-container-highest" },
   { id: "completed", title: "Completed", dotColor: "bg-secondary", countBg: "bg-secondary-fixed text-on-secondary-fixed" },
 ];
 
@@ -37,12 +37,40 @@ export default function Board() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [showInspector, setShowInspector] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const searchContainerRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Global ⌘K or Ctrl+K shortcut to focus search input
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        setIsSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Dismiss search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // New Task Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskStatus, setNewTaskStatus] = useState("ready");
-  const [newTaskCategory, setNewTaskCategory] = useState("Frontend");
+  const [newTaskCategory, setNewTaskCategory] = useState("");
 
   // Redirect if logged out
   useEffect(() => {
@@ -95,14 +123,192 @@ export default function Board() {
     navigate("/");
   };
 
+  // Extract all unique tags across tasks
+  const allAvailableTags = Array.from(
+    new Set(
+      tasks
+        .flatMap((t) => t.tags || [t.category ? `#${t.category.replace(/\s+/g, "")}` : null])
+        .filter(Boolean)
+        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
+    )
+  );
+
+  const displayTags =
+    allAvailableTags.length > 0
+      ? allAvailableTags
+      : ["#WorkSprint", "#Frontend", "#DeepWork", "#Backlog", "#Urgent"];
+
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+
+  // 1. Tag Suggestions
+  const matchingTags = displayTags
+    .filter((tag) =>
+      trimmedQuery
+        ? tag.toLowerCase().includes(trimmedQuery) ||
+          tag.replace("#", "").toLowerCase().includes(trimmedQuery)
+        : true
+    )
+    .slice(0, 5);
+
+  // 2. Task Suggestions
+  const matchingTasks = trimmedQuery
+    ? tasks
+        .filter(
+          (t) =>
+            t.title?.toLowerCase().includes(trimmedQuery) ||
+            t.description?.toLowerCase().includes(trimmedQuery) ||
+            t.category?.toLowerCase().includes(trimmedQuery) ||
+            t.priority?.toLowerCase().includes(trimmedQuery) ||
+            t.status?.toLowerCase().includes(trimmedQuery)
+        )
+        .slice(0, 5)
+    : tasks.slice(0, 3);
+
+  // 3. Column Suggestions
+  const matchingColumns = COLUMNS.filter((c) =>
+    trimmedQuery ? c.title.toLowerCase().includes(trimmedQuery) : true
+  );
+
+  // 4. Quick Nav Actions
+  const quickNavActions = [
+    {
+      id: "nav-dash",
+      title: "Today's Focus Dashboard",
+      subtitle: "Switch to focus timer & priority queue",
+      icon: "wb_sunny",
+      action: () => navigate("/dashboard"),
+    },
+    {
+      id: "nav-analytics",
+      title: "Flow Velocity & Analytics",
+      subtitle: "View circadian rhythm and trends",
+      icon: "monitoring",
+      action: () => navigate("/analytics"),
+    },
+    {
+      id: "nav-profile",
+      title: "Profile & Preferences",
+      subtitle: "Workstation settings & chronotype",
+      icon: "tune",
+      action: () => navigate("/profile"),
+    },
+    {
+      id: "act-new-kanban",
+      title: "Add Kanban Task",
+      subtitle: "Create a task in Backlog or Ready",
+      icon: "add_task",
+      action: () => setShowAddModal(true),
+    },
+  ].filter((a) =>
+    trimmedQuery
+      ? a.title.toLowerCase().includes(trimmedQuery) ||
+        a.subtitle.toLowerCase().includes(trimmedQuery)
+      : true
+  ).slice(0, trimmedQuery ? 3 : 2);
+
+  // Flatten suggestions for keyboard navigation (ArrowUp, ArrowDown, Enter)
+  const flattenedSuggestions = [
+    ...matchingTags.map((tag) => ({
+      id: `tag-${tag}`,
+      type: "tag",
+      title: tag,
+      subtitle: "Filter board by keyword tag",
+      icon: "tag",
+      action: () => {
+        setSearchQuery(tag);
+        setIsSearchOpen(false);
+      },
+    })),
+    ...matchingTasks.map((t) => ({
+      id: `task-${t.id}`,
+      type: "task",
+      title: t.title,
+      subtitle: `${t.priority || "Task"} • Column: ${
+        COLUMNS.find((c) => c.id === t.status)?.title || t.status || "Ready"
+      }`,
+      icon: t.completed ? "task_alt" : "view_kanban",
+      action: () => {
+        setSearchQuery(t.title);
+        setSelectedTaskId(t.id);
+        setShowInspector(true);
+        setIsSearchOpen(false);
+      },
+    })),
+    ...matchingColumns.map((col) => ({
+      id: `col-${col.id}`,
+      type: "column",
+      title: `${col.title} Column`,
+      subtitle: `Jump to ${col.title} stage`,
+      icon: "view_column",
+      action: () => {
+        setSearchQuery("");
+        setIsSearchOpen(false);
+        const el = document.getElementById(`column-${col.id}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      },
+    })),
+    ...quickNavActions.map((a) => ({
+      id: a.id,
+      type: "action",
+      title: a.title,
+      subtitle: a.subtitle,
+      icon: a.icon,
+      action: () => {
+        setIsSearchOpen(false);
+        a.action();
+      },
+    })),
+  ];
+
+  const handleSelectSuggestion = (item) => {
+    if (item && item.action) {
+      item.action();
+    }
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === "Escape") {
+      setIsSearchOpen(false);
+      searchInputRef.current?.blur();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (flattenedSuggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) =>
+          prev < flattenedSuggestions.length - 1 ? prev + 1 : 0
+        );
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (flattenedSuggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) =>
+          prev > 0 ? prev - 1 : flattenedSuggestions.length - 1
+        );
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (
+        flattenedSuggestions.length > 0 &&
+        selectedSuggestionIndex >= 0 &&
+        selectedSuggestionIndex < flattenedSuggestions.length
+      ) {
+        handleSelectSuggestion(flattenedSuggestions[selectedSuggestionIndex]);
+      } else {
+        setIsSearchOpen(false);
+      }
+    }
+  };
+
   // Filter tasks
   const filteredTasks = tasks.filter((t) => {
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = t.title?.toLowerCase().includes(q);
-      const matchTag = t.category?.toLowerCase().includes(q);
-      const matchCode = t.code?.toLowerCase().includes(q);
-      if (!matchTitle && !matchTag && !matchCode) return false;
+    if (trimmedQuery) {
+      const matchTitle = t.title?.toLowerCase().includes(trimmedQuery);
+      const matchTag =
+        t.category?.toLowerCase().includes(trimmedQuery) ||
+        (Array.isArray(t.tags) && t.tags.some((tag) => tag.toLowerCase().includes(trimmedQuery)));
+      const matchCode = t.code?.toLowerCase().includes(trimmedQuery);
+      const matchPriority = t.priority?.toLowerCase().includes(trimmedQuery);
+      const matchEffort = t.effort?.toLowerCase().includes(trimmedQuery);
+      if (!matchTitle && !matchTag && !matchCode && !matchPriority && !matchEffort) return false;
     }
     if (activeFilter === "mine" && t.assignee !== displayName?.slice(0, 2).toUpperCase() && t.assignee !== "YOU") {
       return false;
@@ -180,7 +386,7 @@ export default function Board() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-secondary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Personal Rituals</span>
+                    <span className="truncate font-body-sm text-body-sm">Personal Commits</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest">
                     {habitsCount}
@@ -227,22 +433,269 @@ export default function Board() {
       {/* TOP HEADER */}
       <div className="pl-64">
         <header className="fixed top-0 left-64 right-0 h-16 bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-space-lg">
-          <div className="flex items-center gap-space-md flex-1 max-w-lg">
+          {/* Search bar with Keyword Suggestions */}
+          <div ref={searchContainerRef} className="relative flex items-center gap-space-md flex-1 max-w-lg">
             <div className="relative w-full flex items-center">
-              <span className="material-symbols-outlined absolute left-3 text-outline text-[18px]">
+              <span className="material-symbols-outlined absolute left-3 text-outline text-[18px] pointer-events-none">
                 search
               </span>
               <input
+                ref={searchInputRef}
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-14 py-2 bg-surface-container-high/60 hover:bg-surface-container-high focus:bg-surface-container-lowest text-on-surface placeholder:text-outline rounded-lg outline-none font-body-sm text-body-sm transition-all"
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchOpen(true);
+                  setSelectedSuggestionIndex(0);
+                }}
+                onFocus={() => setIsSearchOpen(true)}
+                onKeyDown={handleSearchKeyDown}
+                className="w-full pl-9 pr-14 py-2 bg-surface-container-high/60 hover:bg-surface-container-high focus:bg-surface-container-lowest text-on-surface placeholder:text-outline rounded-lg outline-none font-body-sm text-body-sm transition-all focus:ring-2 focus:ring-primary/20"
                 placeholder="Search tasks, tags, or jump to..."
                 type="text"
               />
-              <kbd className="absolute right-2.5 px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono text-label-sm select-none">
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-8 p-1 text-outline hover:text-on-surface transition-colors cursor-pointer"
+                  title="Clear search"
+                >
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              ) : null}
+              <kbd
+                onClick={() => {
+                  searchInputRef.current?.focus();
+                  setIsSearchOpen(true);
+                }}
+                className="absolute right-2.5 px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono text-label-sm select-none cursor-pointer hover:bg-surface-container-high"
+                title="Press ⌘K or Ctrl+K to search"
+              >
                 ⌘K
               </kbd>
             </div>
+
+            {/* Keyword Suggestions Dropdown */}
+            {isSearchOpen && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-surface-container-lowest/95 backdrop-blur-2xl rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div className="max-h-[420px] overflow-y-auto divide-y divide-outline-variant/10">
+                  {/* Keyword Tags */}
+                  {matchingTags.length > 0 && (
+                    <div className="p-3 bg-surface-container/30">
+                      <div className="flex items-center justify-between mb-2 px-1">
+                        <span className="font-label-sm text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[14px]">tag</span>
+                          Keyword Tags
+                        </span>
+                        <span className="text-[11px] text-outline font-tabular-mono">Click to filter</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {matchingTags.map((tag) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `tag-${tag}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `tag-${tag}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg font-label-sm text-label-sm transition-all cursor-pointer flex items-center gap-1 ${
+                                searchQuery === tag || isSelected
+                                  ? "bg-primary text-on-primary shadow-xs"
+                                  : "bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+                              }`}
+                            >
+                              <span className="font-medium">{tag}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Matching Tasks */}
+                  {matchingTasks.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                        {trimmedQuery ? "Matching Tasks" : "Recent Tasks"}
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {matchingTasks.map((task) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `task-${task.id}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `task-${task.id}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={task.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <span
+                                  className={`material-symbols-outlined text-[18px] flex-shrink-0 ${
+                                    task.completed ? "text-secondary" : isSelected ? "text-primary" : "text-outline"
+                                  }`}
+                                >
+                                  {task.completed ? "task_alt" : "view_kanban"}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p
+                                    className={`font-body-sm text-body-sm truncate font-medium ${
+                                      task.completed ? "line-through opacity-70" : ""
+                                    }`}
+                                  >
+                                    {task.title}
+                                  </p>
+                                  <p className="font-label-sm text-label-sm text-outline truncate">
+                                    {task.priority || "Task"} • Column: {COLUMNS.find((c) => c.id === task.status)?.title || "Ready"}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="material-symbols-outlined text-[16px] text-outline group-hover:text-primary group-hover:translate-x-0.5 transition-transform flex-shrink-0 ml-2">
+                                arrow_forward
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Kanban Columns */}
+                  {matchingColumns.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">view_column</span>
+                        Kanban Columns
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {matchingColumns.map((col) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `col-${col.id}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `col-${col.id}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={col.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className={`w-2.5 h-2.5 rounded-full ${col.dotColor} flex-shrink-0`} />
+                                <span className="font-body-sm text-body-sm font-medium truncate">{col.title}</span>
+                              </div>
+                              <span className="font-label-sm text-[11px] px-2 py-0.5 rounded-full bg-surface-container font-medium text-outline">
+                                Jump to column
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Actions / Navigation */}
+                  {quickNavActions.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">near_me</span>
+                        Jump To / Actions
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {quickNavActions.map((act) => {
+                          const item = flattenedSuggestions.find((s) => s.id === act.id);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === act.id);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={act.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="material-symbols-outlined text-[18px] text-tertiary">{act.icon}</span>
+                                <div className="min-w-0">
+                                  <p className="font-body-sm text-body-sm font-medium truncate">{act.title}</p>
+                                  <p className="font-label-sm text-label-sm text-outline truncate">{act.subtitle}</p>
+                                </div>
+                              </div>
+                              <span className="material-symbols-outlined text-[16px] text-outline group-hover:text-primary transition-transform">
+                                arrow_forward
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty State */}
+                  {flattenedSuggestions.length === 0 && (
+                    <div className="p-6 text-center text-outline">
+                      <span className="material-symbols-outlined text-2xl text-outline mb-1">search_off</span>
+                      <p className="font-body-sm text-body-sm text-on-surface font-medium">
+                        No results found for &ldquo;{searchQuery}&rdquo;
+                      </p>
+                      <p className="font-label-sm text-label-sm text-outline mt-0.5">
+                        Try searching for tasks, keyword tags (#Frontend), or columns.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Keyboard hint footer */}
+                <div className="px-3 py-2 bg-surface-container-high/60 border-t border-outline-variant/10 flex items-center justify-between text-[11px] text-outline font-label-sm">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono">
+                        ↑↓
+                      </kbd>{" "}
+                      navigate
+                    </span>
+                    <span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono">
+                        ↵
+                      </kbd>{" "}
+                      select
+                    </span>
+                    <span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono">
+                        esc
+                      </kbd>{" "}
+                      close
+                    </span>
+                  </div>
+                  <span className="hidden sm:inline">Search across Kanban cards &amp; tags</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-space-md">
@@ -390,6 +843,30 @@ export default function Board() {
               </div>
             </div>
 
+            {/* Search query filter indicator */}
+            {searchQuery.trim() && (
+              <div className="flex items-center justify-between px-space-md py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-on-surface mb-space-md">
+                <div className="flex items-center gap-2 font-body-sm text-body-sm">
+                  <span className="material-symbols-outlined text-primary text-[18px]">search</span>
+                  <span>
+                    Filtering board by:{" "}
+                    <strong className="text-primary font-semibold">&ldquo;{searchQuery}&rdquo;</strong>{" "}
+                    <span className="text-outline">
+                      ({filteredTasks.length} {filteredTasks.length === 1 ? "task" : "tasks"} visible across columns)
+                    </span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="text-label-sm font-label-sm text-primary hover:text-error transition-colors font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[14px]">close</span>
+                  Clear filter
+                </button>
+              </div>
+            )}
+
             {/* KANBAN COLUMNS + INSPECTOR DRAWER SPLIT */}
             <div className="flex gap-space-lg items-start w-full min-h-[calc(100vh-230px)] overflow-x-auto pb-6">
               {/* 5 Column Canvas */}
@@ -398,6 +875,7 @@ export default function Board() {
                   const colTasks = filteredTasks.filter((t) => t.status === col.id);
                   return (
                     <div
+                      id={`column-${col.id}`}
                       key={col.id}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, col.id)}
@@ -636,7 +1114,7 @@ export default function Board() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="w-full max-w-md bg-surface-container-lowest rounded-2xl shadow-2xl p-6 space-y-4 border border-outline-variant/30">
             <div className="flex items-center justify-between">
-              <h3 className="text-headline-sm font-bold text-on-surface">Add Kanban Task</h3>
+              <h3 className="text-headline-sm font-bold text-on-surface">Add Task</h3>
               <button
                 onClick={() => setShowAddModal(false)}
                 className="text-on-surface-variant hover:text-on-surface cursor-pointer"
@@ -673,7 +1151,7 @@ export default function Board() {
                     <option value="backlog">Backlog</option>
                     <option value="ready">Ready for Today</option>
                     <option value="in_progress">In Progress</option>
-                    <option value="review">Review &amp; QA</option>
+                    <option value="review">Review</option>
                     <option value="completed">Completed</option>
                   </select>
                 </div>

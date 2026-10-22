@@ -4,6 +4,8 @@ import Dashboard from "./component/dashboard";
 import Board from "./component/board";
 import Profile from "./component/profile";
 import Analytics from "./component/analytics";
+import Privacy from "./component/privacy";
+import Terms from "./component/terms";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AppProvider } from "./context/AppContext";
 
@@ -17,6 +19,8 @@ function App() {
           <Route path="/board" element={<Board />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
         </Routes>
       </Router>
     </AppProvider>

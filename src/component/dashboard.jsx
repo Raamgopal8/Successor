@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import image from "../assets/logo.png";
 import { useApp } from "../context/AppContext";
@@ -91,6 +91,37 @@ export default function Dashboard() {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Search bar & keyword suggestions state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const searchContainerRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Global ⌘K or Ctrl+K shortcut to focus search input
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        setIsSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Dismiss search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   // Auth gatekeeper
@@ -228,10 +259,232 @@ export default function Dashboard() {
   const currentMinutes = currentTime.getMinutes();
   const nowDecimal = currentHour + currentMinutes / 60;
 
-  // Filter tasks
+  // Extract all unique tags across tasks
+  const allAvailableTags = Array.from(
+    new Set(
+      tasks
+        .flatMap((t) => t.tags || [])
+        .filter(Boolean)
+        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
+    )
+  );
+
+  const displayTags =
+    allAvailableTags.length > 0
+      ? allAvailableTags
+      : ["#WorkSprint", "#DeepWork", "#Task", "#Urgent", "#Strategic", "#Research"];
+
+  // Search keyword suggestions derived from available data
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+
+  // 1. Tag Suggestions
+  const matchingTags = displayTags
+    .filter((tag) =>
+      trimmedQuery
+        ? tag.toLowerCase().includes(trimmedQuery) ||
+          tag.replace("#", "").toLowerCase().includes(trimmedQuery)
+        : true
+    )
+    .slice(0, 5);
+
+  // 2. Task Suggestions
+  const matchingTasks = trimmedQuery
+    ? tasks
+        .filter(
+          (t) =>
+            t.title?.toLowerCase().includes(trimmedQuery) ||
+            t.description?.toLowerCase().includes(trimmedQuery) ||
+            (Array.isArray(t.tags) &&
+              t.tags.some((tag) => tag.toLowerCase().includes(trimmedQuery))) ||
+            t.category?.toLowerCase().includes(trimmedQuery) ||
+            t.priority?.toLowerCase().includes(trimmedQuery)
+        )
+        .slice(0, 5)
+    : tasks.slice(0, 3);
+
+  // 3. Category / Project Suggestions
+  const systemCategories = [
+    { key: "high-impact", label: "Work Sprint", desc: "Urgent & High Impact Focus", color: "bg-primary" },
+    { key: "quick-wins", label: "Deep Work", desc: "Strategic & Focused Tasks", color: "bg-tertiary" },
+    { key: "habits", label: "Personal Rituals", desc: "Daily Habits & Routines", color: "bg-secondary" },
+  ];
+  const matchingCategories = systemCategories.filter((c) =>
+    trimmedQuery
+      ? c.label.toLowerCase().includes(trimmedQuery) ||
+        c.desc.toLowerCase().includes(trimmedQuery)
+      : true
+  );
+
+  // 4. Habit Suggestions
+  const matchingHabits = habits
+    .filter((h) =>
+      trimmedQuery ? h.title?.toLowerCase().includes(trimmedQuery) : false
+    )
+    .slice(0, 3);
+
+  // 5. Quick Actions / Navigation items
+  const quickNavActions = [
+    {
+      id: "nav-board",
+      title: "Task Board (Kanban)",
+      subtitle: "Jump to 5-stage workflow board",
+      icon: "view_kanban",
+      action: () => navigate("/board"),
+    },
+    {
+      id: "nav-analytics",
+      title: "Analytics & Velocity",
+      subtitle: "View circadian rhythms & focus trends",
+      icon: "monitoring",
+      action: () => navigate("/analytics"),
+    },
+    {
+      id: "nav-profile",
+      title: "Profile & Preferences",
+      subtitle: "Manage chronotype & workstation settings",
+      icon: "tune",
+      action: () => navigate("/profile"),
+    },
+    {
+      id: "act-new-task",
+      title: "Create New Priority Task",
+      subtitle: "Open quick task creation modal",
+      icon: "add_task",
+      action: () => setShowNewTaskModal(true),
+    },
+  ]
+    .filter((a) =>
+      trimmedQuery
+        ? a.title.toLowerCase().includes(trimmedQuery) ||
+          a.subtitle.toLowerCase().includes(trimmedQuery)
+        : true
+    )
+    .slice(0, trimmedQuery ? 3 : 2);
+
+  // Flatten suggestions for keyboard navigation (ArrowUp, ArrowDown, Enter)
+  const flattenedSuggestions = [
+    ...matchingTags.map((tag) => ({
+      id: `tag-${tag}`,
+      type: "tag",
+      title: tag,
+      subtitle: "Filter tasks by keyword tag",
+      icon: "tag",
+      action: () => {
+        setSearchQuery(tag);
+        setIsSearchOpen(false);
+      },
+    })),
+    ...matchingTasks.map((t) => ({
+      id: `task-${t.id}`,
+      type: "task",
+      title: t.title,
+      subtitle: `${t.priority || "Task"}${t.duration ? ` • ${t.duration}` : ""}`,
+      icon: t.completed ? "task_alt" : "radio_button_unchecked",
+      action: () => {
+        setSearchQuery(t.title);
+        setIsSearchOpen(false);
+        setTimeout(() => {
+          const el = document.getElementById(`task-card-${t.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-2", "ring-primary");
+            setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 2500);
+          }
+        }, 120);
+      },
+    })),
+    ...matchingCategories.map((c) => ({
+      id: `cat-${c.key}`,
+      type: "category",
+      title: c.label,
+      subtitle: c.desc,
+      icon: "folder_open",
+      action: () => {
+        setActiveFilter(c.key);
+        setSearchQuery("");
+        setIsSearchOpen(false);
+      },
+    })),
+    ...matchingHabits.map((h) => ({
+      id: `habit-${h.id}`,
+      type: "habit",
+      title: h.title,
+      subtitle: `Daily Habit • ${h.duration || "15m"}`,
+      icon: "spa",
+      action: () => {
+        setIsSearchOpen(false);
+        const el = document.getElementById("habits-widget");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      },
+    })),
+    ...quickNavActions.map((a) => ({
+      id: a.id,
+      type: "action",
+      title: a.title,
+      subtitle: a.subtitle,
+      icon: a.icon,
+      action: () => {
+        setIsSearchOpen(false);
+        a.action();
+      },
+    })),
+  ];
+
+  const handleSelectSuggestion = (item) => {
+    if (item && item.action) {
+      item.action();
+    }
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === "Escape") {
+      setIsSearchOpen(false);
+      searchInputRef.current?.blur();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (flattenedSuggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) =>
+          prev < flattenedSuggestions.length - 1 ? prev + 1 : 0
+        );
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (flattenedSuggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) =>
+          prev > 0 ? prev - 1 : flattenedSuggestions.length - 1
+        );
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (
+        flattenedSuggestions.length > 0 &&
+        selectedSuggestionIndex >= 0 &&
+        selectedSuggestionIndex < flattenedSuggestions.length
+      ) {
+        handleSelectSuggestion(flattenedSuggestions[selectedSuggestionIndex]);
+      } else {
+        setIsSearchOpen(false);
+      }
+    }
+  };
+
+  // Filter tasks dynamically by category AND keyword search query
   const filteredTasks = tasks.filter((t) => {
-    if (activeFilter === "all") return true;
-    return t.category === activeFilter;
+    const matchesCategory = activeFilter === "all" ? true : t.category === activeFilter;
+    if (!trimmedQuery) return matchesCategory;
+
+    const matchesSearch =
+      t.title?.toLowerCase().includes(trimmedQuery) ||
+      t.description?.toLowerCase().includes(trimmedQuery) ||
+      (Array.isArray(t.tags) &&
+        t.tags.some((tag) => tag.toLowerCase().includes(trimmedQuery))) ||
+      t.category?.toLowerCase().includes(trimmedQuery) ||
+      t.priority?.toLowerCase().includes(trimmedQuery) ||
+      t.effort?.toLowerCase().includes(trimmedQuery);
+
+    return matchesCategory && matchesSearch;
   });
 
   const completedCount = tasks.filter((t) => t.completed).length;
@@ -240,7 +493,7 @@ export default function Dashboard() {
   const TIMELINE_BLOCKS = [
     {
       id: "prep",
-      title: "Morning Prep",
+      title: "Morning Warms",
       subtitle: "Habits & Planning",
       start: 8.5,  // 08:30 AM
       end: 9.5,    // 09:30 AM
@@ -419,12 +672,12 @@ export default function Dashboard() {
             {/* Projects & Lists — Live from AppContext */}
             <div className="pt-space-xs">
               <div className="flex items-center justify-between px-space-md pb-space-xs">
-                <span className="font-label-sm text-label-sm uppercase tracking-wider text-outline">
+                <span className="py-2 ml-4 font-label-sm text-label-sm uppercase tracking-wider text-outline">
                   Projects &amp; Lists
                 </span>
                 <button
                   onClick={() => setShowNewProjectModal(true)}
-                  className="text-outline hover:text-on-surface transition-colors cursor-pointer"
+                  className="p-2 m-2 text-outline hover:text-on-surface transition-colors cursor-pointer"
                   title="Add new project"
                   type="button"
                 >
@@ -442,7 +695,7 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-secondary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Personal Rituals</span>
+                    <span className="truncate font-body-sm text-body-sm">Personal Commitments</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest group-hover:text-on-surface">
                     {habitsCount}
@@ -502,21 +755,309 @@ export default function Dashboard() {
       {/* TOP HEADER */}
       <div className="pl-64">
         <header className="fixed top-0 left-64 right-0 h-16 bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-space-lg">
-          {/* Search bar */}
-          <div className="flex items-center gap-space-md flex-1 max-w-lg">
+          {/* Search bar with Keyword Suggestions */}
+          <div ref={searchContainerRef} className="relative flex items-center gap-space-md flex-1 max-w-lg">
             <div className="relative w-full flex items-center">
-              <span className="material-symbols-outlined absolute left-3 text-outline text-[18px]">
+              <span className="material-symbols-outlined absolute left-3 text-outline text-[18px] pointer-events-none">
                 search
               </span>
               <input
-                className="w-full pl-9 pr-14 py-2 bg-surface-container-high/60 hover:bg-surface-container-high focus:bg-surface-container-lowest text-on-surface placeholder:text-outline rounded-lg outline-none font-body-sm text-body-sm transition-all"
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchOpen(true);
+                  setSelectedSuggestionIndex(0);
+                }}
+                onFocus={() => setIsSearchOpen(true)}
+                onKeyDown={handleSearchKeyDown}
+                className="w-full pl-9 pr-14 py-2 bg-surface-container-high/60 hover:bg-surface-container-high focus:bg-surface-container-lowest text-on-surface placeholder:text-outline rounded-lg outline-none font-body-sm text-body-sm transition-all focus:ring-2 focus:ring-primary/20"
                 placeholder="Search tasks, tags, or jump to..."
                 type="text"
               />
-              <kbd className="absolute right-2.5 px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono text-label-sm select-none">
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-8 p-1 text-outline hover:text-on-surface transition-colors cursor-pointer"
+                  title="Clear search"
+                >
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              ) : null}
+              <kbd
+                onClick={() => {
+                  searchInputRef.current?.focus();
+                  setIsSearchOpen(true);
+                }}
+                className="absolute right-2.5 px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono text-label-sm select-none cursor-pointer hover:bg-surface-container-high"
+                title="Press ⌘K or Ctrl+K to search"
+              >
                 ⌘K
               </kbd>
             </div>
+
+            {/* Keyword Suggestions Dropdown */}
+            {isSearchOpen && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-surface-container-lowest/95 backdrop-blur-2xl rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div className="max-h-[420px] overflow-y-auto divide-y divide-outline-variant/10">
+                  {/* Keyword Tags */}
+                  {matchingTags.length > 0 && (
+                    <div className="p-3 bg-surface-container/30">
+                      <div className="flex items-center justify-between mb-2 px-1">
+                        <span className="font-label-sm text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[14px]">tag</span>
+                          Keyword Tags
+                        </span>
+                        <span className="text-[11px] text-outline font-tabular-mono">Click to filter</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {matchingTags.map((tag) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `tag-${tag}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `tag-${tag}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg font-label-sm text-label-sm transition-all cursor-pointer flex items-center gap-1 ${
+                                searchQuery === tag || isSelected
+                                  ? "bg-primary text-on-primary shadow-xs"
+                                  : "bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+                              }`}
+                            >
+                              <span className="font-medium">{tag}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Matching Tasks */}
+                  {matchingTasks.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                        {trimmedQuery ? "Matching Tasks" : "Recent Tasks"}
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {matchingTasks.map((task) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `task-${task.id}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `task-${task.id}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={task.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <span
+                                  className={`material-symbols-outlined text-[18px] flex-shrink-0 ${
+                                    task.completed ? "text-secondary" : isSelected ? "text-primary" : "text-outline"
+                                  }`}
+                                >
+                                  {task.completed ? "task_alt" : "check_box_outline_blank"}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p
+                                    className={`font-body-sm text-body-sm truncate font-medium ${
+                                      task.completed ? "line-through opacity-70" : ""
+                                    }`}
+                                  >
+                                    {task.title}
+                                  </p>
+                                  <p className="font-label-sm text-label-sm text-outline truncate">
+                                    {task.priority || "Task"} {task.duration ? `• ${task.duration}` : ""}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="material-symbols-outlined text-[16px] text-outline group-hover:text-primary group-hover:translate-x-0.5 transition-transform flex-shrink-0 ml-2">
+                                arrow_forward
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Projects & Focus Streams */}
+                  {matchingCategories.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">folder</span>
+                        Projects &amp; Focus Streams
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {matchingCategories.map((c) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `cat-${c.key}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `cat-${c.key}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={c.key}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className={`w-2.5 h-2.5 rounded-full ${c.color} flex-shrink-0`} />
+                                <div className="min-w-0">
+                                  <p className="font-body-sm text-body-sm font-medium truncate">{c.label}</p>
+                                  <p className="font-label-sm text-label-sm text-outline truncate">{c.desc}</p>
+                                </div>
+                              </div>
+                              <span className="font-label-sm text-[11px] px-2 py-0.5 rounded-full bg-surface-container font-medium text-outline">
+                                Filter View
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Matching Habits */}
+                  {matchingHabits.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">spa</span>
+                        Habits
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {matchingHabits.map((h) => {
+                          const item = flattenedSuggestions.find((s) => s.id === `habit-${h.id}`);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === `habit-${h.id}`);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={h.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="material-symbols-outlined text-[18px] text-secondary">spa</span>
+                                <span className="font-body-sm text-body-sm font-medium truncate">{h.title}</span>
+                              </div>
+                              <span className="font-label-sm text-label-sm text-outline">{h.duration || "15m"}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Actions / Navigation */}
+                  {quickNavActions.length > 0 && (
+                    <div className="p-2">
+                      <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">near_me</span>
+                        Jump To / Actions
+                      </div>
+                      <div className="space-y-0.5 mt-1">
+                        {quickNavActions.map((act) => {
+                          const item = flattenedSuggestions.find((s) => s.id === act.id);
+                          const itemIdx = flattenedSuggestions.findIndex((s) => s.id === act.id);
+                          const isSelected = itemIdx === selectedSuggestionIndex;
+                          return (
+                            <button
+                              key={act.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectSuggestion(item);
+                              }}
+                              onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
+                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="material-symbols-outlined text-[18px] text-tertiary">{act.icon}</span>
+                                <div className="min-w-0">
+                                  <p className="font-body-sm text-body-sm font-medium truncate">{act.title}</p>
+                                  <p className="font-label-sm text-label-sm text-outline truncate">{act.subtitle}</p>
+                                </div>
+                              </div>
+                              <span className="material-symbols-outlined text-[16px] text-outline group-hover:text-primary transition-transform">
+                                arrow_forward
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty State */}
+                  {flattenedSuggestions.length === 0 && (
+                    <div className="p-6 text-center text-outline">
+                      <span className="material-symbols-outlined text-2xl text-outline mb-1">search_off</span>
+                      <p className="font-body-sm text-body-sm text-on-surface font-medium">
+                        No results found for &ldquo;{searchQuery}&rdquo;
+                      </p>
+                      <p className="font-label-sm text-label-sm text-outline mt-0.5">
+                        Try searching for keywords like tasks, tags (#WorkSprint), or projects.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Keyboard hint footer */}
+                <div className="px-3 py-2 bg-surface-container-high/60 border-t border-outline-variant/10 flex items-center justify-between text-[11px] text-outline font-label-sm">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono">
+                        ↑↓
+                      </kbd>{" "}
+                      navigate
+                    </span>
+                    <span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono">
+                        ↵
+                      </kbd>{" "}
+                      select
+                    </span>
+                    <span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-tabular-mono">
+                        esc
+                      </kbd>{" "}
+                      close
+                    </span>
+                  </div>
+                  <span className="hidden sm:inline">Search across tasks, tags &amp; projects</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Header Widget */}
@@ -543,7 +1084,7 @@ export default function Dashboard() {
             </div>
 
             {/* Notification bell */}
-            <div className="relative">
+            {/* <div className="relative">
               <button
                 className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors cursor-pointer"
                 type="button"
@@ -551,7 +1092,7 @@ export default function Dashboard() {
                 <span className="material-symbols-outlined text-[20px]">notifications</span>
               </button>
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error" />
-            </div>
+            </div> */}
 
             {/* Profile Dropdown */}
             <div className="relative">
@@ -633,7 +1174,7 @@ export default function Dashboard() {
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wider font-semibold">
                           <span className="w-1.5 h-1.5 rounded-full bg-primary/70" />
-                          {nowDecimal < activeChrono.peakStart ? "Cadence Priming" : "Async Cadence"}
+                          {nowDecimal < activeChrono.peakStart ? "Flow Standby" : "Flow Recovery"}
                         </span>
                       )}
                       <span className="font-tabular-mono text-label-sm text-outline">
@@ -654,7 +1195,7 @@ export default function Dashboard() {
                         </>
                       ) : (
                         <>
-                          Circadian peak scheduled for{" "}
+                          Flow Peak scheduled for{" "}
                           <span className="font-tabular-mono font-semibold text-primary">
                             {activeChrono.windowLabel}
                           </span>
@@ -778,6 +1319,30 @@ export default function Dashboard() {
                     </div>
                   </div>
 
+                  {/* Search query filter indicator */}
+                  {searchQuery.trim() && (
+                    <div className="flex items-center justify-between px-space-md py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-on-surface">
+                      <div className="flex items-center gap-2 font-body-sm text-body-sm">
+                        <span className="material-symbols-outlined text-primary text-[18px]">search</span>
+                        <span>
+                          Filtering by keyword:{" "}
+                          <strong className="text-primary font-semibold">&ldquo;{searchQuery}&rdquo;</strong>{" "}
+                          <span className="text-outline">
+                            ({filteredTasks.length} {filteredTasks.length === 1 ? "match" : "matches"})
+                          </span>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="text-label-sm font-label-sm text-primary hover:text-error transition-colors font-semibold flex items-center gap-1 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">close</span>
+                        Clear filter
+                      </button>
+                    </div>
+                  )}
+
                   {/* Task Card List */}
                   <div className="space-y-space-sm">
                     {loadingTasks ? (
@@ -792,12 +1357,15 @@ export default function Dashboard() {
                         <span className="material-symbols-outlined text-3xl mb-1 text-primary/60">task_alt</span>
                         <p className="font-headline-sm font-semibold text-on-surface">No tasks in this view</p>
                         <p className="font-body-sm text-outline mt-1">
-                          Click "Plan Next Block" or create a new task to get started.
+                          {searchQuery.trim()
+                            ? "No tasks match your search keyword. Try clearing the filter or searching for another keyword."
+                            : 'Click "Plan Next Block" or create a new task to get started.'}
                         </p>
                       </div>
                     ) : (
                       filteredTasks.map((t) => (
                         <div
+                          id={`task-card-${t.id}`}
                           key={t.id}
                           className={`group relative p-space-md rounded-xl bg-surface-container-lowest shadow-sm hover:shadow-md transition-all flex flex-col gap-y-space-sm border border-outline-variant/10 ${
                             t.completed ? "opacity-75" : ""
@@ -1139,7 +1707,7 @@ export default function Dashboard() {
                       </button>
 
                       <button
-                        onClick={resetTimer}
+                        onClick={() => resetTimer()}
                         className="p-2.5 rounded-full bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors cursor-pointer"
                         title="Reset Session"
                         type="button"
@@ -1148,37 +1716,10 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
-
-                  {/* Soundscape pill group */}
-                  <div className="space-y-space-xs pt-space-xs">
-                    <label className="font-label-sm text-label-sm text-outline block">
-                      AMBIENT SOUNDSCAPE
-                    </label>
-                    <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-surface-container">
-                      {[
-                        { id: "rain", label: "🌧️ Lo-Fi Rain" },
-                        { id: "noise", label: "📻 White Noise" },
-                        { id: "forest", label: "🌲 Forest" },
-                      ].map((snd) => (
-                        <button
-                          key={snd.id}
-                          onClick={() => setActiveSound(snd.id)}
-                          className={`py-1.5 px-2 rounded-md font-label-sm text-label-sm text-center transition-all cursor-pointer ${
-                            activeSound === snd.id
-                              ? "bg-surface-container-lowest text-primary font-semibold shadow-xs"
-                              : "text-on-surface-variant hover:text-on-surface"
-                          }`}
-                          type="button"
-                        >
-                          {snd.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </section>
 
                 {/* HABITS WIDGET */}
-                <section className="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-y-space-md border border-outline-variant/10">
+                <section id="habits-widget" className="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-y-space-md border border-outline-variant/10">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-space-xs">
                       <span className="material-symbols-outlined text-secondary text-[20px]">spa</span>

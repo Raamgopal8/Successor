@@ -1,9 +1,14 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  onAuthStateChanged,
   GoogleAuthProvider,
   GithubAuthProvider,
   updateProfile,
@@ -25,6 +30,117 @@ const Login = () => {
   // States
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [quickLoggingIn, setQuickLoggingIn] = useState(false);
+
+  // Forgot password modal state
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState("");
+
+  // Save or clear user workstation token for quick application login
+  const saveWorkstationToken = async (user, shouldRemember) => {
+    if (shouldRemember && user) {
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        const token = await user.getIdToken(true);
+        const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 Days expiration
+        localStorage.setItem("successor_workstation_token", token);
+        localStorage.setItem("successor_token_expiry", expiry.toString());
+        localStorage.setItem("successor_remember_me", "true");
+        if (user.email) {
+          localStorage.setItem("successor_saved_email", user.email);
+        }
+      } catch (err) {
+        console.warn("Could not save workstation token:", err);
+      }
+    } else {
+      try {
+        await setPersistence(auth, browserSessionPersistence);
+      } catch (err) {
+        console.warn("Could not set session persistence:", err);
+      }
+      localStorage.removeItem("successor_workstation_token");
+      localStorage.removeItem("successor_token_expiry");
+      localStorage.removeItem("successor_remember_me");
+    }
+  };
+
+  // Auto-restore workstation session for quick login when enabled
+  useEffect(() => {
+    const savedRemember = localStorage.getItem("successor_remember_me");
+    if (savedRemember !== null) {
+      setRememberMe(savedRemember === "true");
+    }
+
+    const savedEmail = localStorage.getItem("successor_saved_email");
+    if (savedEmail) {
+      setEmail(savedEmail);
+    }
+
+    const token = localStorage.getItem("successor_workstation_token");
+    const expiry = localStorage.getItem("successor_token_expiry");
+    const isTokenValid = token && (!expiry || Date.now() < Number(expiry));
+
+    if (savedRemember === "true" && isTokenValid) {
+      setQuickLoggingIn(true);
+      const unsub = onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          try {
+            // Refresh workstation token & navigate
+            const freshToken = await user.getIdToken();
+            localStorage.setItem("successor_workstation_token", freshToken);
+            navigate("/dashboard");
+          } catch (err) {
+            console.warn("Workstation token refresh failed:", err);
+            setQuickLoggingIn(false);
+          }
+        } else {
+          setQuickLoggingIn(false);
+        }
+      });
+      return () => unsub();
+    }
+  }, [navigate]);
+
+  const handleOpenForgotModal = (e) => {
+    e?.preventDefault();
+    setResetEmail(email.trim());
+    setResetError("");
+    setResetSuccess(false);
+    setShowForgotModal(true);
+  };
+
+  const handleSendResetEmail = async (e) => {
+    e.preventDefault();
+    setResetError("");
+    setResetSuccess(false);
+
+    if (!resetEmail.trim()) {
+      setResetError("Please enter your registered email address.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, resetEmail.trim());
+      setResetSuccess(true);
+    } catch (err) {
+      console.error("Password reset error:", err);
+      const friendlyMsg =
+        err.code === "auth/invalid-email"
+          ? "Please provide a valid email address."
+          : err.code === "auth/user-not-found"
+          ? "No registered account found with this email."
+          : err.code === "auth/too-many-requests"
+          ? "Too many requests. Please wait a few moments and try again."
+          : err.message || "Failed to send reset email. Please try again.";
+      setResetError(friendlyMsg);
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,25 +153,29 @@ const Login = () => {
 
     setLoading(true);
     try {
+      let loggedInUser;
       if (tab === "signin") {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
+        const userCred = await signInWithEmailAndPassword(auth, email.trim(), password);
+        loggedInUser = userCred.user;
       } else {
         const userCred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        const user = userCred.user;
+        loggedInUser = userCred.user;
         if (displayName.trim()) {
-          await updateProfile(user, { displayName: displayName.trim() });
+          await updateProfile(loggedInUser, { displayName: displayName.trim() });
         }
         await setDoc(
-          doc(db, "users", user.uid),
+          doc(db, "users", loggedInUser.uid),
           {
-            uid: user.uid,
-            email: user.email,
-            displayName: displayName.trim() || user.email.split("@")[0],
+            uid: loggedInUser.uid,
+            email: loggedInUser.email,
+            displayName: displayName.trim() || loggedInUser.email.split("@")[0],
             createdAt: new Date().toISOString(),
           },
           { merge: true }
         );
       }
+
+      await saveWorkstationToken(loggedInUser, rememberMe);
       navigate("/dashboard");
     } catch (err) {
       console.error(err);
@@ -91,6 +211,7 @@ const Login = () => {
         },
         { merge: true }
       );
+      await saveWorkstationToken(user, rememberMe);
       navigate("/dashboard");
     } catch (err) {
       console.error(err);
@@ -118,6 +239,7 @@ const Login = () => {
         },
         { merge: true }
       );
+      await saveWorkstationToken(user, rememberMe);
       navigate("/dashboard");
     } catch (err) {
       console.error(err);
@@ -158,7 +280,7 @@ const Login = () => {
                         Successor
                       </span>
                       <span className="bg-[#edeefc] text-[#5558e6] text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        V1.0
+                        V1.1
                       </span>
                     </div>
                     <p className="text-[13px] text-[#555a6d] font-normal tracking-normal -mt-0.5">
@@ -177,8 +299,8 @@ const Login = () => {
                   </div>
 
                   <h1 className="font-['Plus_Jakarta_Sans'] text-[42px] lg:text-[46px] font-extrabold text-[#111827] leading-[1.12] tracking-[-0.03em]">
-                    Personalized productivity engineered for{" "}
-                    <span className="text-[#4f52e2] italic font-serif font-medium">deep flow</span>.
+                    Personalized productivity engine for deep{" "}
+                    <span className="text-[#4f52e2] italic font-serif font-medium">work flow</span>.
                   </h1>
 
                   <p className="text-[16px] text-[#4b5563] max-w-lg leading-relaxed pt-1">
@@ -191,10 +313,10 @@ const Login = () => {
               <div className="flex items-center space-x-3 text-[#4b5563] text-[13px] font-medium pt-2">
                 <span className="flex items-center space-x-1.5">
                   <span className="material-symbols-outlined text-[17px] text-[#0a8754]">verified_user</span>
-                  <span className="text-[#1f2937]">SOC-2 Type II Certified</span>
+                  <span className="text-[#1f2937]">Montior Daily Rhythms</span>
                 </span>
                 <span className="text-[#9ca3af]">•</span>
-                <span className="text-[#1f2937]">256-bit Flow Vault Encrypted</span>
+                <span className="text-[#1f2937]">Begin Deep Work</span>
               </div>
             </div>
 
@@ -219,7 +341,7 @@ const Login = () => {
                     Sign In
                   </button>
                   <button
-                    className={`flex-1 py-2 rounded-md font-label-md text-label-md transition-all text-center cursor-pointer ${
+                    className={`flex-1 py-2 ml-6 rounded-md font-label-md text-label-md transition-all text-center cursor-pointer ${
                       tab === "signup"
                         ? "bg-surface-container-lowest text-on-surface shadow-sm font-semibold"
                         : "text-on-surface-variant hover:text-on-surface"
@@ -246,6 +368,18 @@ const Login = () => {
                   </p>
                 </div>
 
+                {/* Quick-Login In-Progress Banner */}
+                {quickLoggingIn && (
+                  <div className="p-3.5 rounded-xl bg-primary-container/30 border border-primary/20 text-on-primary-container text-body-sm flex items-center gap-2.5 animate-pulse">
+                    <span className="material-symbols-outlined text-[20px] text-primary animate-spin">
+                      progress_activity
+                    </span>
+                    <span className="font-medium">
+                      Workstation token verified. Restoring workspace...
+                    </span>
+                  </div>
+                )}
+
                 {/* Error Banner */}
                 {error && (
                   <div className="p-3 rounded-lg bg-error-container text-error text-body-sm flex items-center space-x-2">
@@ -255,7 +389,7 @@ const Login = () => {
                 )}
 
                 {/* Social Quick Logins */}
-                <div className="grid grid-cols-2 gap-space-sm pt-space-xs">
+                <div className="grid grid-cols-1 gap-space-sm pt-space-xs">
                   {/* Google Button */}
                   <button
                     onClick={handleGoogleSignIn}
@@ -283,23 +417,6 @@ const Login = () => {
                     </svg>
                     <span>Google</span>
                   </button>
-
-                  {/* GitHub Button */}
-                  <button
-                    onClick={handleGithubSignIn}
-                    disabled={loading}
-                    className="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-label-md text-label-md transition-all group disabled:opacity-50 cursor-pointer"
-                    type="button"
-                  >
-                    <svg className="w-4 h-4 fill-current text-on-surface group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
-                      <path
-                        clipRule="evenodd"
-                        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
-                        fillRule="evenodd"
-                      />
-                    </svg>
-                    <span>GitHub</span>
-                  </button>
                 </div>
 
                 {/* Divider */}
@@ -325,7 +442,7 @@ const Login = () => {
                         <input
                           className="w-full pl-10 pr-3.5 py-2.5 rounded-lg bg-transparent font-body-md text-body-md text-on-surface focus:outline-none placeholder:text-on-surface-variant/50"
                           id="displayName"
-                          placeholder="Elena Vance"
+                          placeholder=""
                           type="text"
                           value={displayName}
                           onChange={(e) => setDisplayName(e.target.value)}
@@ -346,7 +463,7 @@ const Login = () => {
                       <input
                         className="w-full pl-10 pr-3.5 py-2.5 rounded-lg bg-transparent font-body-md text-body-md text-on-surface focus:outline-none placeholder:text-on-surface-variant/50"
                         id="email"
-                        placeholder="elena.vance@flow.design"
+                        placeholder=""
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -362,9 +479,13 @@ const Login = () => {
                         Password
                       </label>
                       {tab === "signin" && (
-                        <a className="font-label-sm text-label-sm text-primary hover:text-primary-container transition-colors" href="#">
+                        <button
+                          type="button"
+                          onClick={handleOpenForgotModal}
+                          className="font-label-sm text-label-sm text-primary hover:text-primary-container hover:underline transition-colors cursor-pointer"
+                        >
                           Forgot password?
-                        </a>
+                        </button>
                       )}
                     </div>
                     <div className="relative rounded-lg bg-surface-container-low transition-all focus-within:bg-surface-container-lowest focus-within:ring-2 focus-within:ring-primary/20">
@@ -374,7 +495,7 @@ const Login = () => {
                       <input
                         className="w-full pl-10 pr-11 py-2.5 rounded-lg bg-transparent font-body-md text-body-md text-on-surface focus:outline-none placeholder:text-on-surface-variant/50"
                         id="password"
-                        placeholder="Enter security passphrase"
+                        placeholder=""
                         type={showPassword ? "text" : "password"}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -392,21 +513,31 @@ const Login = () => {
                     </div>
                   </div>
 
-                  {/* Workstation Checkbox */}
+                  {/* Workstation Checkbox & Token Indicator */}
                   <div className="flex items-center justify-between pt-0.5">
-                    <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                    <label className="flex items-center space-x-2.5 cursor-pointer select-none group">
                       <input
                         checked={rememberMe}
                         onChange={(e) => setRememberMe(e.target.checked)}
                         className="w-4 h-4 rounded text-primary focus:ring-primary/30 accent-primary cursor-pointer"
                         type="checkbox"
                       />
-                      <span className="font-body-sm text-body-sm text-on-surface">
+                      <span className="font-body-sm text-body-sm text-on-surface group-hover:text-primary transition-colors">
                         Remember me on this workstation
                       </span>
                     </label>
-                    <span className="font-label-sm text-label-sm text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">
-                      30 Days
+                    <span
+                      title={rememberMe ? "Generates a secure 30-day workstation token for automatic quick login" : "Session token expires when the application window closes"}
+                      className={`font-label-sm text-label-sm px-2.5 py-1 rounded-full flex items-center gap-1.5 transition-all select-none ${
+                        rememberMe
+                          ? "bg-secondary-container/40 text-on-secondary-container font-semibold border border-secondary/20"
+                          : "bg-surface-container text-on-surface-variant/70"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[13px] text-secondary">
+                        {rememberMe ? "token" : "lock_clock"}
+                      </span>
+                      <span>{rememberMe ? "30 Days Token Active" : "Session Only"}</span>
                     </span>
                   </div>
 
@@ -429,17 +560,6 @@ const Login = () => {
                   </button>
                 </form>
 
-                {/* Passkey & SSO Options */}
-                <div className="pt-space-xs text-center">
-                  <button
-                    className="inline-flex items-center space-x-1.5 text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md cursor-pointer"
-                    type="button"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">passkey</span>
-                    <span>Sign in with enterprise passkey / SSO</span>
-                  </button>
-                </div>
-
                 {/* Security & Legal Footer */}
                 <div className="pt-space-sm space-y-2 text-center">
                   <div className="inline-flex items-center justify-center space-x-1 text-on-surface-variant font-label-sm text-label-sm">
@@ -448,13 +568,13 @@ const Login = () => {
                   </div>
                   <p className="font-label-sm text-label-sm text-on-surface-variant/80">
                     By authenticating, you accept Successor's{" "}
-                    <a className="text-on-surface hover:underline font-medium" href="#">
+                    <Link className="text-on-surface hover:underline font-medium" to="/terms">
                       Terms of Service
-                    </a>{" "}
+                    </Link>{" "}
                     and{" "}
-                    <a className="text-on-surface hover:underline font-medium" href="#">
+                    <Link className="text-on-surface hover:underline font-medium" to="/privacy">
                       Privacy Policy
-                    </a>.
+                    </Link>.
                   </p>
                 </div>
               </div>
@@ -463,6 +583,107 @@ const Login = () => {
           </div>
         </div>
       </main>
+
+      {/* FORGOT PASSWORD MODAL */}
+      {showForgotModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-md bg-surface-container-lowest rounded-2xl shadow-2xl p-6 space-y-4 border border-outline-variant/30 animate-in fade-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[22px]">lock_reset</span>
+                </div>
+                <div>
+                  <h3 className="text-headline-sm font-bold text-on-surface">Reset Password</h3>
+                  <p className="text-[12px] text-on-surface-variant">Successor Security</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <p className="text-body-sm text-on-surface-variant leading-relaxed">
+              Enter your registered work email address below. We'll send you an instant link to reset your password.
+            </p>
+
+            {/* Success message banner */}
+            {resetSuccess && (
+              <div className="p-3.5 rounded-xl bg-secondary-container/30 border border-secondary/30 text-on-surface text-body-sm space-y-1">
+                <div className="flex items-center gap-2 text-secondary font-semibold">
+                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                  <span>Reset Link Dispatched</span>
+                </div>
+                <p className="text-[13px] text-on-surface-variant pl-6">
+                  A password reset email has been sent to <strong className="text-on-surface">{resetEmail}</strong>. Please check your inbox and spam folder.
+                </p>
+              </div>
+            )}
+
+            {/* Error message banner */}
+            {resetError && (
+              <div className="p-3 rounded-lg bg-error-container text-error text-body-sm flex items-center space-x-2">
+                <span className="material-symbols-outlined text-[18px]">error</span>
+                <span>{resetError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSendResetEmail} className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <label className="block font-label-md text-label-md text-on-surface font-medium" htmlFor="resetEmail">
+                  Registered Email Address
+                </label>
+                <div className="relative rounded-lg bg-surface-container-low transition-all focus-within:bg-surface-container-lowest focus-within:ring-2 focus-within:ring-primary/20">
+                  <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+                    mail
+                  </span>
+                  <input
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-lg bg-transparent font-body-md text-body-md text-on-surface focus:outline-none placeholder:text-on-surface-variant/50"
+                    id="resetEmail"
+                    placeholder="name@example.com"
+                    type="email"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(false)}
+                  className="px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant font-label-md text-label-md transition-colors cursor-pointer"
+                >
+                  {resetSuccess ? "Back to Sign In" : "Cancel"}
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="px-5 py-2 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {resetLoading ? (
+                    <>
+                      <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                      <span>Sending Link...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-[16px]">send</span>
+                      <span>{resetSuccess ? "Resend Link" : "Send Reset Link"}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
