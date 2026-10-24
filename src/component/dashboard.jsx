@@ -1,7 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import image from "../assets/logo.png";
 import { useApp } from "../context/AppContext";
+import LabelCustomizerModal from "./LabelCustomizerModal";
+import QuickCaptureModal from "./QuickCaptureModal";
+import ZenFocusDeck from "./ZenFocusDeck";
+import ShortcutsHelpModal from "./ShortcutsHelpModal";
+import RolloverDiagnosticBanner from "./RolloverDiagnosticBanner";
+import HabitManagerModal from "./HabitManagerModal";
+import OverloadGuardMeter from "./OverloadGuardMeter";
+import MorningPlanningModal from "./MorningPlanningModal";
+import EveningShutdownModal from "./EveningShutdownModal";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 // Project colour palette — cycle through these for new/unknown categories
 const PROJECT_PALETTE = [
@@ -23,6 +33,7 @@ export default function Dashboard() {
     displayName,
     displayTitle,
     avatarUrl,
+    saveUserProfile,
     logout,
     tasks,
     loadingTasks,
@@ -34,11 +45,17 @@ export default function Dashboard() {
     loadingHabits,
     toggleHabit,
     createHabit,
+    updateHabit,
+    refillHabitShield,
     deleteHabit,
+    autoBreakdownTask,
     habitsCount,
     activeTasksCount,
     highImpactCount,
     flowVelocityScore,
+    todayCompletedTasksCount,
+    taskLabels,
+    getLabelStyle,
     timerSeconds,
     timerRunning,
     formattedTimer,
@@ -46,7 +63,41 @@ export default function Dashboard() {
     pauseTimer,
     resetTimer,
     setTimerSeconds,
+    toggleDailyHighlight,
+    setDailyHighlightsAndLockPlan,
+    dailyHighlightTasks,
   } = useApp();
+
+  // Label Customizer Modal
+  const [showLabelCustomizer, setShowLabelCustomizer] = useState(false);
+
+  // Circadian & Timeline Schedule Customizer Modal
+  const [showScheduleCustomizer, setShowScheduleCustomizer] = useState(false);
+  const [customChronoChoice, setCustomChronoChoice] = useState("lark");
+  const [customTargetBlocks, setCustomTargetBlocks] = useState(3);
+
+  // Phase 1 Features: Quick Capture, Zen Deck, and Shortcuts
+  const [showQuickCapture, setShowQuickCapture] = useState(false);
+  const [showZenDeck, setShowZenDeck] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
+
+  // Phase 2 Features: Auto-Rescheduling Assistant & Habit Streaks Engine
+  const [showHabitManagerModal, setShowHabitManagerModal] = useState(false);
+  const [overtimeMinutes, setOvertimeMinutes] = useState(0);
+  const [autoRescheduleActive, setAutoRescheduleActive] = useState(true);
+
+  // Phase 3 Features: Morning Planning, Evening Shutdown & Recharge Mode
+  const [showMorningPlanningModal, setShowMorningPlanningModal] = useState(false);
+  const [morningPlanningStep, setMorningPlanningStep] = useState(1);
+  const [showEveningShutdownModal, setShowEveningShutdownModal] = useState(false);
+  const [isRechargeMode, setIsRechargeMode] = useState(false);
+
+  // Helper to open Morning Planning directly at a specific step (e.g. Step 4 to re-designate highlight)
+  const handleOpenMorningPlanning = (step = 1) => {
+    setMorningPlanningStep(step);
+    setShowMorningPlanningModal(true);
+  };
 
   // Filter state: 'all' | 'high-impact' | 'quick-wins' | 'habits' | custom project key
   const [activeFilter, setActiveFilter] = useState("all");
@@ -62,14 +113,16 @@ export default function Dashboard() {
   // New task modal state
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskCategory, setNewTaskCategory] = useState("high-impact");
+  const [newTaskCategory, setNewTaskCategory] = useState("Work Sprint");
+  const [newTaskPriority, setNewTaskPriority] = useState("P1 Urgent & High Impact");
   const [newTaskDuration, setNewTaskDuration] = useState("30 min");
 
   // Edit task modal state
   const [editingTask, setEditingTask] = useState(null);
   const [editTaskTitle, setEditTaskTitle] = useState("");
   const [editTaskDescription, setEditTaskDescription] = useState("");
-  const [editTaskCategory, setEditTaskCategory] = useState("high-impact");
+  const [editTaskCategory, setEditTaskCategory] = useState("Work Sprint");
+  const [editTaskPriority, setEditTaskPriority] = useState("P1 Urgent & High Impact");
   const [editTaskDuration, setEditTaskDuration] = useState("30 min");
 
   // Delete confirmation modal state
@@ -131,24 +184,67 @@ export default function Dashboard() {
     }
   }, [currentUser, navigate]);
 
+  // Target task for power-user keyboard shortcuts (X, 1, 2, 3)
+  const targetTask =
+    tasks.find((t) => t.id === selectedTaskId) ||
+    tasks.find((t) => !t.completed) ||
+    tasks[0];
+
+  useKeyboardShortcuts({
+    onQuickCapture: () => setShowQuickCapture(true),
+    onToggleZen: () => setShowZenDeck((prev) => !prev),
+    onToggleTimer: () => {
+      if (timerRunning) pauseTimer();
+      else startTimer();
+    },
+    onToggleActiveTask: () => {
+      if (targetTask) {
+        toggleTaskCompletion(targetTask.id);
+        setToastMessage(`Toggled: "${targetTask.title}"`);
+        setTimeout(() => setToastMessage(null), 2500);
+      }
+    },
+    onSetPriority: (newPriority) => {
+      if (targetTask) {
+        updateTask(targetTask.id, { priority: newPriority });
+        setToastMessage(`Priority set to ${newPriority}`);
+        setTimeout(() => setToastMessage(null), 2500);
+      }
+    },
+    onShowShortcuts: () => setShowShortcutsHelp(true),
+    disabled:
+      showQuickCapture ||
+      showZenDeck ||
+      showShortcutsHelp ||
+      showHabitManagerModal ||
+      showMorningPlanningModal ||
+      showEveningShutdownModal ||
+      showNewTaskModal ||
+      showLabelCustomizer ||
+      showScheduleCustomizer ||
+      Boolean(editingTask) ||
+      Boolean(taskToDelete) ||
+      showNewProjectModal,
+  });
+
   // Task Actions
   const handleCreateTask = async (e) => {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
+    const chosenPriority = newTaskPriority || "P1 Urgent & High Impact";
+    const chosenCategory = newTaskCategory || "Work Sprint";
+
     await createTask({
       title: newTaskTitle.trim(),
       description: "Added to priority workspace queue.",
-      category: newTaskCategory,
-      priority:
-        newTaskCategory === "high-impact"
-          ? "P1 Urgent & High Impact"
-          : newTaskCategory === "quick-wins"
-            ? "P2 Strategic"
-            : "P3 Maintenance",
+      category: chosenCategory,
+      priority: chosenPriority,
       duration: newTaskDuration,
-      effort: newTaskCategory === "high-impact" ? "⚡⚡⚡ Deep Focus" : "⚡ Light Effort",
-      tags: ["#Task"],
+      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") || chosenCategory === "Deep Work"
+        ? "⚡⚡⚡ Deep Focus"
+        : "⚡ Light Effort",
+      tags: [`#${chosenCategory.replace(/\s+/g, "")}`],
       subtasks: "0/1",
       completed: false,
       status: "ready",
@@ -164,7 +260,8 @@ export default function Dashboard() {
     setEditingTask(task);
     setEditTaskTitle(task.title || "");
     setEditTaskDescription(task.description || "");
-    setEditTaskCategory(task.category || "high-impact");
+    setEditTaskCategory(task.category || "Work Sprint");
+    setEditTaskPriority(task.priority || "P1 Urgent & High Impact");
     setEditTaskDuration(task.duration || "30 min");
   };
 
@@ -172,23 +269,18 @@ export default function Dashboard() {
     e.preventDefault();
     if (!editingTask || !editTaskTitle.trim()) return;
 
-    const updatedPriority =
-      editTaskCategory === "high-impact"
-        ? "P1 Urgent & High Impact"
-        : editTaskCategory === "quick-wins"
-          ? "P2 Strategic"
-          : "P3 Maintenance";
-
-    const updatedEffort =
-      editTaskCategory === "high-impact" ? "⚡⚡⚡ Deep Focus" : "⚡ Light Effort";
+    const chosenPriority = editTaskPriority || "P1 Urgent & High Impact";
+    const chosenCategory = editTaskCategory || "Work Sprint";
 
     const updatedFields = {
       title: editTaskTitle.trim(),
       description: editTaskDescription.trim(),
-      category: editTaskCategory,
-      priority: updatedPriority,
+      category: chosenCategory,
+      priority: chosenPriority,
       duration: editTaskDuration.trim() || "30 min",
-      effort: updatedEffort,
+      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") || chosenCategory === "Deep Work"
+        ? "⚡⚡⚡ Deep Focus"
+        : "⚡ Light Effort",
     };
 
     await updateTask(editingTask.id, updatedFields);
@@ -470,89 +562,383 @@ export default function Dashboard() {
     }
   };
 
-  // Filter tasks dynamically by category AND keyword search query
-  const filteredTasks = tasks.filter((t) => {
-    const matchesCategory = activeFilter === "all" ? true : t.category === activeFilter;
-    if (!trimmedQuery) return matchesCategory;
+  // Filter tasks to show ONLY pending today's and backlog tasks (remove completed and other tasks)
+  const pendingTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      // Exclude completed tasks
+      if (t.completed || t.status === "completed") return false;
 
-    const matchesSearch =
-      t.title?.toLowerCase().includes(trimmedQuery) ||
-      t.description?.toLowerCase().includes(trimmedQuery) ||
-      (Array.isArray(t.tags) &&
-        t.tags.some((tag) => tag.toLowerCase().includes(trimmedQuery))) ||
-      t.category?.toLowerCase().includes(trimmedQuery) ||
-      t.priority?.toLowerCase().includes(trimmedQuery) ||
-      t.effort?.toLowerCase().includes(trimmedQuery);
+      // Must be today's task or backlog task
+      const isBacklog = t.status === "backlog" || t.date === "Backlog";
+      const isToday = !isBacklog;
+      return isToday || isBacklog;
+    });
+  }, [tasks]);
 
-    return matchesCategory && matchesSearch;
-  });
+  const pendingTodayTasks = useMemo(() => {
+    return pendingTasks.filter((t) => t.status !== "backlog" && t.date !== "Backlog");
+  }, [pendingTasks]);
+
+  const pendingBacklogTasks = useMemo(() => {
+    return pendingTasks.filter((t) => t.status === "backlog" || t.date === "Backlog");
+  }, [pendingTasks]);
+
+  // Filter tasks dynamically by category/scope AND keyword search query
+  const filteredTasks = useMemo(() => {
+    return pendingTasks.filter((t) => {
+      let matchesFilter = true;
+      if (activeFilter === "today") {
+        matchesFilter = t.status !== "backlog" && t.date !== "Backlog";
+      } else if (activeFilter === "backlog") {
+        matchesFilter = t.status === "backlog" || t.date === "Backlog";
+      } else if (activeFilter === "high-impact") {
+        matchesFilter = t.priority?.includes("P1") || t.priority?.includes("High") || t.effort?.includes("High");
+      } else if (activeFilter === "quick-wins") {
+        matchesFilter = t.duration?.includes("15") || t.duration?.includes("5") || t.effort?.includes("Low");
+      } else if (activeFilter === "habits") {
+        matchesFilter = t.category === "Health & Habits" || t.category === "Personal" || t.category === "Personal Commitments";
+      } else if (activeFilter !== "all") {
+        matchesFilter = t.category === activeFilter;
+      }
+
+      if (!matchesFilter) return false;
+      if (!trimmedQuery) return true;
+
+      return (
+        t.title?.toLowerCase().includes(trimmedQuery) ||
+        t.description?.toLowerCase().includes(trimmedQuery) ||
+        (Array.isArray(t.tags) &&
+          t.tags.some((tag) => tag.toLowerCase().includes(trimmedQuery))) ||
+        t.category?.toLowerCase().includes(trimmedQuery) ||
+        t.priority?.toLowerCase().includes(trimmedQuery) ||
+        t.effort?.toLowerCase().includes(trimmedQuery)
+      );
+    });
+  }, [pendingTasks, activeFilter, trimmedQuery]);
 
   const completedCount = tasks.filter((t) => t.completed).length;
 
-  // Daily Rhythm Timeline Blocks
-  const TIMELINE_BLOCKS = [
-    {
-      id: "prep",
-      title: "Morning Warms",
-      subtitle: "Habits & Planning",
-      start: 8.5,  // 08:30 AM
-      end: 9.5,    // 09:30 AM
-      timeLabel: "08:30 – 09:30",
-      width: "w-[15%]",
+  // Chronotype schedule mapping — reactive to userProfile preference
+  const chronotype = (userProfile?.chronotype || "lark").toLowerCase();
+
+  const CHRONO_CONFIG = {
+    lark: {
+      id: "lark",
+      name: "Morning Lark",
+      icon: "wb_sunny",
+      peakStart: 8.5,
+      peakEnd: 12.5,
+      windowLabel: "8:30 AM – 12:30 PM",
+      timelineStart: 7.5, // 07:30 AM
+      timelineEnd: 17.5,  // 05:30 PM
+      ticks: ["07:30 AM", "08:30 AM", "12:30 PM", "03:30 PM", "05:30 PM"],
+      energyProfile: { peak: "High ⚡", offPeak: "Steady ⚡" },
+      blocks: [
+        {
+          id: "prep",
+          title: "Morning Warms",
+          subtitle: "Habits & Planning",
+          start: 7.5,
+          end: 8.5,
+          timeLabel: "07:30 – 08:30",
+          width: "w-[15%]",
+        },
+        {
+          id: "deep-work",
+          defaultTitle: "Deep Work Sprint - 01",
+          subtitle: "Deep Focus (Peak ⚡)",
+          start: 8.5,
+          end: 12.5,
+          timeLabel: "08:30 – 12:30",
+          width: "w-[38%]",
+          isDeep: true,
+        },
+        {
+          id: "lunch",
+          title: "Lunch & Recharge",
+          subtitle: "Recovery Window",
+          start: 12.5,
+          end: 13.5,
+          timeLabel: "12:30 – 01:30",
+          width: "w-[15%]",
+        },
+        {
+          id: "collab",
+          defaultTitle: "Deep Work Sprint - 02",
+          subtitle: "Strategic Alignment",
+          start: 13.5,
+          end: 15.5,
+          timeLabel: "01:30 – 03:30",
+          width: "w-[16%]",
+          isCollab: true,
+        },
+        {
+          id: "wrap",
+          title: "Daily Wrap-up",
+          subtitle: "Triage & Reflection",
+          start: 15.5,
+          end: 17.5,
+          timeLabel: "03:30 – 05:30",
+          width: "w-[16%]",
+        },
+      ],
     },
-    {
-      id: "deep-work",
-      title:
-        tasks.find((t) => !t.completed && (t.category === "high-impact" || t.effort?.includes("Deep")))?.title ||
+    falcon: {
+      id: "falcon",
+      name: "Steady Falcon",
+      icon: "flare",
+      peakStart: 11.0,
+      peakEnd: 15.5,
+      windowLabel: "11:00 AM – 3:30 PM",
+      timelineStart: 10.0, // 10:00 AM
+      timelineEnd: 20.0,  // 08:00 PM
+      ticks: ["10:00 AM", "11:00 AM", "03:30 PM", "06:30 PM", "08:00 PM"],
+      energyProfile: { peak: "High ⚡", offPeak: "Steady ⚡" },
+      blocks: [
+        {
+          id: "prep",
+          title: "Midday Setup",
+          subtitle: "Habits & Planning",
+          start: 10.0,
+          end: 11.0,
+          timeLabel: "10:00 – 11:00",
+          width: "w-[15%]",
+        },
+        {
+          id: "deep-work",
+          defaultTitle: "Deep Focus Cadence",
+          subtitle: "Peak Flow (High ⚡)",
+          start: 11.0,
+          end: 15.5,
+          timeLabel: "11:00 – 03:30",
+          width: "w-[38%]",
+          isDeep: true,
+        },
+        {
+          id: "lunch",
+          title: "Recharge & Meal",
+          subtitle: "Cognitive Pause",
+          start: 15.5,
+          end: 16.5,
+          timeLabel: "03:30 – 04:30",
+          width: "w-[15%]",
+        },
+        {
+          id: "collab",
+          defaultTitle: "Strategic Async",
+          subtitle: "Team & Comms",
+          start: 16.5,
+          end: 18.5,
+          timeLabel: "04:30 – 06:30",
+          width: "w-[16%]",
+          isCollab: true,
+        },
+        {
+          id: "wrap",
+          title: "Evening Triage",
+          subtitle: "Reflection & Close",
+          start: 18.5,
+          end: 20.0,
+          timeLabel: "06:30 – 08:00",
+          width: "w-[16%]",
+        },
+      ],
+    },
+    owl: {
+      id: "owl",
+      name: "Night Owl",
+      icon: "nightlight",
+      peakStart: 17.0,
+      peakEnd: 22.0,
+      windowLabel: "5:00 PM – 10:00 PM",
+      timelineStart: 15.0, // 03:00 PM
+      timelineEnd: 24.0,  // 12:00 AM
+      ticks: ["03:00 PM", "05:00 PM", "10:00 PM", "11:00 PM", "12:00 AM"],
+      energyProfile: { peak: "Surge ⚡", offPeak: "Calm 🌙" },
+      blocks: [
+        {
+          id: "prep",
+          title: "Afternoon Warmup",
+          subtitle: "Planning & Priming",
+          start: 15.0,
+          end: 17.0,
+          timeLabel: "03:00 – 05:00",
+          width: "w-[15%]",
+        },
+        {
+          id: "deep-work",
+          defaultTitle: "Night Flow Sprint",
+          subtitle: "Golden Window (Surge ⚡)",
+          start: 17.0,
+          end: 22.0,
+          timeLabel: "05:00 – 10:00",
+          width: "w-[45%]",
+          isDeep: true,
+        },
+        {
+          id: "lunch",
+          title: "Late Dinner & Break",
+          subtitle: "Mind Refresh",
+          start: 22.0,
+          end: 22.75,
+          timeLabel: "10:00 – 10:45",
+          width: "w-[12%]",
+        },
+        {
+          id: "collab",
+          defaultTitle: "Deep Work Sprint - 02",
+          subtitle: "Creative Deep Focus",
+          start: 22.75,
+          end: 23.5,
+          timeLabel: "10:45 – 11:30",
+          width: "w-[14%]",
+          isCollab: true,
+        },
+        {
+          id: "wrap",
+          title: "Night Wrap-up",
+          subtitle: "Log & Wind-down",
+          start: 23.5,
+          end: 24.0,
+          timeLabel: "11:30 – 12:00",
+          width: "w-[14%]",
+        },
+      ],
+    },
+  };
+
+  const activeChrono = CHRONO_CONFIG[chronotype] || CHRONO_CONFIG.lark;
+
+  // Auto-Rescheduling Assistant Logic:
+  // If a focus block runs overtime, the timeline dynamically pushes downstream blocks
+  // instead of showing overlapping or broken schedules.
+  const baseDeepBlock = activeChrono.blocks.find((b) => b.isDeep) || activeChrono.blocks[0];
+  const detectedOvertime =
+    timerRunning && nowDecimal > baseDeepBlock.end
+      ? Math.min(120, Math.max(0, Math.round((nowDecimal - baseDeepBlock.end) * 60)))
+      : 0;
+
+  const effectiveOvertimeMinutes =
+    overtimeMinutes > 0
+      ? overtimeMinutes
+      : autoRescheduleActive && detectedOvertime >= 5
+      ? detectedOvertime
+      : 0;
+  const overtimeHours = effectiveOvertimeMinutes / 60;
+
+  const formatDecimalHour = (dec) => {
+    const rawH = Math.floor(dec) % 24;
+    const m = Math.round((dec - Math.floor(dec)) * 60);
+    const period = rawH >= 12 ? "PM" : "AM";
+    const displayH = rawH % 12 === 0 ? 12 : rawH % 12;
+    return `${String(displayH).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`;
+  };
+
+  // Daily Rhythm Timeline Blocks dynamically constructed with Downstream Overtime Ripple
+  const TIMELINE_BLOCKS = activeChrono.blocks.map((block, idx) => {
+    let title = block.title;
+    if (block.isDeep) {
+      title =
+        tasks.find(
+          (t) =>
+            !t.completed &&
+            (t.category === "high-impact" ||
+              t.effort?.includes("Deep") ||
+              t.priority?.includes("P1") ||
+              t.priority?.includes("Urgent"))
+        )?.title ||
         tasks.find((t) => !t.completed)?.title ||
-        "Deep Work Sprint - 01",
-      subtitle: "Deep Focus (P1)",
-      start: 9.5,  // 09:30 AM
-      end: 12.5,   // 12:30 PM
-      timeLabel: "09:30 – 12:30",
-      width: "w-[38%]",
-    },
-    {
-      id: "lunch",
-      title: "Lunch & Recharge",
-      subtitle: "Recovery",
-      start: 12.5, // 12:30 PM
-      end: 13.5,   // 01:30 PM
-      timeLabel: "12:30 – 01:30",
-      width: "w-[15%]",
-    },
-    {
-      id: "collab",
-      title:
-        tasks.find((t) => !t.completed && t.category === "quick-wins")?.title ||
-        "Deep Work Sprint - 02",
-      subtitle: "Strategic Alignment",
-      start: 13.5, // 01:30 PM
-      end: 15.5,   // 03:30 PM
-      timeLabel: "01:30 – 03:30",
-      width: "w-[16%]",
-    },
-    {
-      id: "wrap",
-      title: "Wrap-up",
-      subtitle: "Triage & Reflection",
-      start: 15.5, // 03:30 PM
-      end: 17.5,   // 05:30 PM
-      timeLabel: "03:30 – 05:30",
-      width: "w-[16%]",
-    },
-  ];
+        block.defaultTitle;
+    } else if (block.isCollab) {
+      title =
+        tasks.find(
+          (t) =>
+            !t.completed &&
+            (t.category === "quick-wins" ||
+              t.priority?.includes("P2") ||
+              t.priority?.includes("Strategic"))
+        )?.title || block.defaultTitle;
+    }
+
+    // Dynamic Downstream Ripple:
+    // If overtime is active, block 0 (focus block) expands by overtimeHours,
+    // and every subsequent block (idx > 0) is pushed downstream so schedules never collide!
+    let blockStart = block.start;
+    let blockEnd = block.end;
+
+    if (effectiveOvertimeMinutes > 0) {
+      if (idx === 0) {
+        blockEnd = block.end + overtimeHours;
+      } else {
+        blockStart = block.start + overtimeHours;
+        blockEnd = block.end + overtimeHours;
+      }
+    }
+
+    const dynamicTimeLabel =
+      effectiveOvertimeMinutes > 0
+        ? `${formatDecimalHour(blockStart)} – ${formatDecimalHour(blockEnd)}`
+        : block.timeLabel;
+
+    return {
+      ...block,
+      title,
+      start: blockStart,
+      end: blockEnd,
+      timeLabel: dynamicTimeLabel,
+    };
+  });
 
   const activeTimelineBlock = TIMELINE_BLOCKS.find(
     (b) => nowDecimal >= b.start && nowDecimal < b.end
   );
 
+  const effectiveTimelineEnd = activeChrono.timelineEnd + overtimeHours;
+
   const timelineProgressPercent =
-    nowDecimal < 8.5
+    nowDecimal < activeChrono.timelineStart
       ? 0
-      : nowDecimal > 17.5
+      : nowDecimal > effectiveTimelineEnd
       ? 100
-      : ((nowDecimal - 8.5) / (17.5 - 8.5)) * 100;
+      : ((nowDecimal - activeChrono.timelineStart) /
+          (effectiveTimelineEnd - activeChrono.timelineStart)) *
+        100;
+
+  const handleUpdateChronotype = async (newChrono) => {
+    if (!newChrono) return;
+    try {
+      if (saveUserProfile) {
+        await saveUserProfile({ chronotype: newChrono });
+        const name = newChrono === "lark" ? "Morning Lark" : newChrono === "falcon" ? "Steady Falcon" : "Night Owl";
+        setToastMessage(`Circadian cadence updated to ${name}`);
+        setTimeout(() => setToastMessage(null), 3000);
+      }
+    } catch (err) {
+      console.warn("Could not save chronotype:", err);
+    }
+  };
+
+  const handleOpenScheduleCustomizer = () => {
+    setCustomChronoChoice(chronotype);
+    setCustomTargetBlocks(userProfile?.dailyTargetBlocks || 3);
+    setShowScheduleCustomizer(true);
+  };
+
+  const handleSaveScheduleCustomizer = async (e) => {
+    e.preventDefault();
+    if (!saveUserProfile) return;
+    try {
+      await saveUserProfile({
+        chronotype: customChronoChoice,
+        dailyTargetBlocks: Number(customTargetBlocks) || 3,
+      });
+      setShowScheduleCustomizer(false);
+      setToastMessage("Circadian schedule & target blocks updated!");
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err) {
+      console.warn("Could not save schedule:", err);
+    }
+  };
 
   const greeting =
     currentHour < 12
@@ -562,35 +948,6 @@ export default function Dashboard() {
         : "Good evening";
 
   const firstName = displayName.split(" ")[0];
-
-  // Chronotype schedule mapping
-  const chronotype = userProfile?.chronotype || "lark";
-
-  const CHRONO_CONFIG = {
-    lark: {
-      name: "Morning Lark",
-      peakStart: 8.5,
-      peakEnd: 12.5,
-      windowLabel: "8:30 AM – 12:30 PM",
-      energyProfile: { peak: "High ⚡", offPeak: "Steady ⚡" },
-    },
-    falcon: {
-      name: "Steady Falcon",
-      peakStart: 11.0,
-      peakEnd: 16.5,
-      windowLabel: "11:00 AM – 4:30 PM",
-      energyProfile: { peak: "High ⚡", offPeak: "Steady ⚡" },
-    },
-    owl: {
-      name: "Night Owl",
-      peakStart: 17.0,
-      peakEnd: 22.5,
-      windowLabel: "5:00 PM – 10:30 PM",
-      energyProfile: { peak: "Surge ⚡", offPeak: "Calm 🌙" },
-    },
-  };
-
-  const activeChrono = CHRONO_CONFIG[chronotype] || CHRONO_CONFIG.lark;
   const isFlowPeakActive =
     nowDecimal >= activeChrono.peakStart && nowDecimal <= activeChrono.peakEnd;
 
@@ -609,8 +966,9 @@ export default function Dashboard() {
 
   const targetBlocks = userProfile?.dailyTargetBlocks || 3;
   const completedBlocks =
-    userProfile?.completedBlocks ??
-    (completedCount > 0 ? Math.min(completedCount, targetBlocks) : 0);
+    typeof userProfile?.completedBlocks === "number"
+      ? userProfile.completedBlocks
+      : 0;
   const blocksPercent = Math.min(
     100,
     Math.round((completedBlocks / targetBlocks) * 100)
@@ -1062,26 +1420,36 @@ export default function Dashboard() {
 
           {/* Right Header Widget */}
           <div className="flex items-center gap-space-md">
+           
             {/* Global Synchronized Focus Session Widget */}
             <div className="flex items-center gap-space-xs px-space-sm py-1.5 rounded-full bg-surface-container-high text-on-surface shadow-[0_1px_3px_0_rgba(15,23,42,0.04)]">
               <span className="material-symbols-outlined text-tertiary text-[18px]">timer</span>
               <span className="font-tabular-mono text-body-sm font-semibold">
                 {formattedTimer}
               </span>
-              <span className="font-label-sm text-label-sm text-outline">Focus Session</span>
+              <span className="font-label-sm text-label-sm text-outline hidden sm:inline">Focus Session</span>
               <button
                 onClick={() => (timerRunning ? pauseTimer() : startTimer())}
                 className={`ml-1 w-5 h-5 flex items-center justify-center rounded-full text-on-primary transition-colors cursor-pointer ${
                   timerRunning ? "bg-secondary" : "bg-primary"
                 }`}
                 type="button"
-                title={timerRunning ? "Pause Timer" : "Start Timer"}
+                title={timerRunning ? "Pause Timer (Space)" : "Start Timer (Space)"}
               >
                 <span className="material-symbols-outlined text-[12px]">
                   {timerRunning ? "pause" : "play_arrow"}
                 </span>
               </button>
             </div>
+
+            {/* Keyboard Shortcuts Helper icon */}
+            <button
+              onClick={() => setShowShortcutsHelp(true)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+              title="Keyboard Shortcuts (?)"
+            >
+              <span className="material-symbols-outlined text-[19px]">keyboard</span>
+            </button>
 
             {/* Notification bell */}
             {/* <div className="relative">
@@ -1165,17 +1533,29 @@ export default function Dashboard() {
               <div className="relative z-10 flex flex-col gap-y-space-md">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-space-xs">
+                    <div className="flex items-center gap-space-xs flex-wrap">
                       {isFlowPeakActive ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container font-label-sm text-label-sm uppercase tracking-wider font-semibold">
+                        <button
+                          type="button"
+                          onClick={handleOpenScheduleCustomizer}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container font-label-sm text-label-sm uppercase tracking-wider font-semibold cursor-pointer hover:opacity-90 transition-opacity"
+                          title="Click to customize Circadian Schedule"
+                        >
                           <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-                          Flow Peak Active
-                        </span>
+                          <span>Flow Peak Active ({activeChrono.name})</span>
+                          <span className="material-symbols-outlined text-[13px]">tune</span>
+                        </button>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wider font-semibold">
+                        <button
+                          type="button"
+                          onClick={handleOpenScheduleCustomizer}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wider font-semibold cursor-pointer hover:bg-surface-container-highest transition-colors"
+                          title="Click to customize Circadian Schedule"
+                        >
                           <span className="w-1.5 h-1.5 rounded-full bg-primary/70" />
-                          {nowDecimal < activeChrono.peakStart ? "Flow Standby" : "Flow Recovery"}
-                        </span>
+                          <span>{nowDecimal < activeChrono.peakStart ? "Flow Standby" : "Flow Recovery"} ({activeChrono.name})</span>
+                          <span className="material-symbols-outlined text-[13px]">tune</span>
+                        </button>
                       )}
                       <span className="font-tabular-mono text-label-sm text-outline">
                         {currentTime.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
@@ -1206,16 +1586,44 @@ export default function Dashboard() {
                   </div>
 
                   {/* Top Actions */}
-                  <div className="flex items-center gap-space-xs">
+                  <div className="flex items-center gap-space-xs flex-wrap">
                     <button
-                      onClick={() => setShowNewTaskModal(true)}
+                      onClick={() => handleOpenMorningPlanning(1)}
+                      className="flex items-center gap-space-xs px-space-md py-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-all shadow-sm cursor-pointer border border-amber-500/20"
+                      type="button"
+                      title="2-minute intentional daily kickoff ritual"
+                    >
+                      <span className="material-symbols-outlined text-[18px] text-amber-500">wb_sunny</span>
+                      <span>Morning Kickoff</span>
+                    </button>
+                    <button
+                      onClick={() => setShowEveningShutdownModal(true)}
+                      className="flex items-center gap-space-xs px-space-md py-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-all shadow-sm cursor-pointer border border-purple-500/20"
+                      type="button"
+                      title="End-of-day reflection & guilt-free evening rest transition"
+                    >
+                      <span className="material-symbols-outlined text-[18px] text-purple-400">nightlight</span>
+                      <span>Daily Shutdown</span>
+                    </button>
+                    <button
+                      onClick={() => setShowQuickCapture(true)}
                       className="flex items-center gap-space-xs px-space-md py-2.5 rounded-lg bg-surface-container-lowest text-on-surface font-label-md text-label-md hover:bg-surface-container-high transition-all shadow-sm cursor-pointer"
                       type="button"
+                      title="Quick Capture with Natural Language Parser (Press C)"
                     >
-                      <span className="material-symbols-outlined text-[18px] text-tertiary">
-                        add_task
-                      </span>
-                      <span>Plan Next Block</span>
+                      <span className="material-symbols-outlined text-[18px] text-primary">bolt</span>
+                      <span>Quick Capture</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-outline font-tabular-mono text-[10px]">C</kbd>
+                    </button>
+                    <button
+                      onClick={() => setShowZenDeck(true)}
+                      className="flex items-center gap-space-xs px-space-md py-2.5 rounded-lg bg-surface-container-lowest text-on-surface font-label-md text-label-md hover:bg-surface-container-high transition-all shadow-sm cursor-pointer"
+                      type="button"
+                      title="Full-screen Zen Mode (Press F)"
+                    >
+                      <span className="material-symbols-outlined text-[18px] text-tertiary">self_improvement</span>
+                      <span>Zen Deck</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-outline font-tabular-mono text-[10px]">F</kbd>
                     </button>
                     <button
                       onClick={() => (timerRunning ? pauseTimer() : startTimer())}
@@ -1257,7 +1665,7 @@ export default function Dashboard() {
                     <div className="min-w-0">
                       <span className="font-label-sm text-label-sm text-outline block truncate">Tasks Completed</span>
                       <span className="font-tabular-mono text-body-md font-semibold text-on-surface">
-                        {completedCount} <span className="text-outline font-normal">of {tasks.length} ({completionRate}%)</span>
+                        {todayCompletedTasksCount} <span className="text-outline font-normal">today • {completedCount} total</span>
                       </span>
                     </div>
                   </div>
@@ -1267,7 +1675,7 @@ export default function Dashboard() {
                       <span className="material-symbols-outlined text-[20px]">nest_clock_farsight_analog</span>
                     </div>
                     <div className="min-w-0">
-                      <span className="font-label-sm text-label-sm text-outline block truncate">Pomodoro Blocks</span>
+                      <span className="font-label-sm text-label-sm text-outline block truncate">Today&apos;s Focus Blocks</span>
                       <span className="font-tabular-mono text-body-md font-semibold text-on-surface">
                         {completedBlocks} of {targetBlocks} ({blocksPercent}%)
                       </span>
@@ -1283,6 +1691,173 @@ export default function Dashboard() {
               {/* MAIN QUEUE COLUMN (8 cols) */}
               <div className="lg:col-span-8 flex flex-col gap-y-space-lg">
 
+                {/* Evening Recharge Mode Banner */}
+                {isRechargeMode && (
+                  <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-200 flex items-center justify-between gap-3 animate-in fade-in duration-300">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-300">
+                        <span className="material-symbols-outlined text-[20px]">bedtime</span>
+                      </div>
+                      <div>
+                        <h4 className="font-headline-sm text-sm font-bold text-white">
+                          Evening Recharge Mode Active 🌙
+                        </h4>
+                        <p className="text-body-sm text-purple-300/80">
+                          Daily shutdown completed. Disconnect without guilt and restore your cognitive energy.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsRechargeMode(false)}
+                      className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface text-label-sm font-semibold hover:bg-surface-container-high transition-colors cursor-pointer"
+                    >
+                      Exit Rest Mode
+                    </button>
+                  </div>
+                )}
+
+                {/* Daily Workload Capacity Warning: Overload Guard */}
+                <OverloadGuardMeter />
+
+                {/* TODAY'S PRIMARY HIGHLIGHTS DOCK / LOCK-IN STATUS */}
+                <section className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-500/10 via-surface-container-low to-surface-container-lowest border border-amber-500/30 shadow-sm relative overflow-hidden">
+                  <div className="absolute -right-8 -top-8 w-36 h-36 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shadow-xs shrink-0">
+                        <span className="material-symbols-outlined text-[22px] fill-1">stars</span>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="font-headline-sm text-headline-sm text-on-surface font-bold">
+                            Today&apos;s Primary Highlight{dailyHighlightTasks.length > 1 ? "s" : ""}
+                          </h2>
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 font-label-sm text-[11px] font-bold">
+                            {dailyHighlightTasks.length} Non-Negotiable{dailyHighlightTasks.length === 1 ? "" : "s"}
+                          </span>
+                          {userProfile?.dailyFocusPlanLocked && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/15 text-secondary border border-secondary/30 font-label-sm text-[11px] font-semibold"
+                              title="Locked and synced to Cloud Firestore"
+                            >
+                              <span className="material-symbols-outlined text-[13px]">cloud_done</span>
+                              <span>Plan Locked</span>
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-body-sm text-body-sm text-outline">
+                          Your single or multi-task anchor plan that guarantees a successful day.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMorningPlanning(4)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-container hover:bg-amber-500/15 text-on-surface hover:text-amber-600 dark:hover:text-amber-400 border border-outline-variant/30 hover:border-amber-500/40 font-label-md text-label-md font-semibold transition-all shadow-xs cursor-pointer self-start sm:self-auto"
+                      title="ReDesignate today's Primary Highlight and lock plan into Firestore"
+                    >
+                      <span className="material-symbols-outlined text-[18px] text-amber-500">sync</span>
+                      <span>ReDesignate Highlight{dailyHighlightTasks.length > 1 ? "s" : ""}</span>
+                    </button>
+                  </div>
+
+                  {dailyHighlightTasks.length === 0 ? (
+                    <div className="p-4 rounded-xl bg-surface-container-lowest/80 border border-dashed border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                      <div className="flex items-center gap-3">
+                        <span className="material-symbols-outlined text-[28px] text-amber-500/60 shrink-0">flag_circle</span>
+                        <div>
+                          <p className="font-body-md text-on-surface font-medium">No Primary Highlight designated yet for today.</p>
+                          <p className="font-body-sm text-outline text-[12px]">Choose 1 or more anchor tasks to lock in your daily focus and sync to Cloud Firestore.</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMorningPlanning(4)}
+                        className="px-4 py-2 rounded-xl bg-amber-500 text-stone-900 font-label-md font-bold hover:bg-amber-400 transition-colors cursor-pointer shadow-sm flex items-center gap-1.5 whitespace-nowrap self-stretch sm:self-auto justify-center"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">add_task</span>
+                        <span>Designate Highlight</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {dailyHighlightTasks.map((t) => (
+                        <div
+                          key={t.id}
+                          className={`p-3 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                            t.completed
+                              ? "bg-surface-container/40 border-outline-variant/20 opacity-80"
+                              : "bg-surface-container-lowest border-amber-500/30 shadow-xs hover:border-amber-500/60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleTaskCompletion(t.id)}
+                                className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center cursor-pointer transition-all flex-shrink-0 ${
+                                  t.completed
+                                    ? "bg-secondary text-on-secondary"
+                                    : "bg-surface-container text-transparent hover:bg-primary/10 border border-outline-variant"
+                                }`}
+                                title={t.completed ? "Mark incomplete" : "Mark completed"}
+                              >
+                                <span className={`material-symbols-outlined text-[15px] ${t.completed ? "opacity-100" : "opacity-0"}`}>
+                                  check
+                                </span>
+                              </button>
+                              <div className="min-w-0">
+                                <span className={`font-body-sm block truncate font-semibold ${t.completed ? "line-through text-outline" : "text-on-surface"}`}>
+                                  {t.title}
+                                </span>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  {t.priority && (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant uppercase">
+                                      {t.priority}
+                                    </span>
+                                  )}
+                                  <span className="text-[11px] font-tabular-mono text-outline">
+                                    {t.duration || "30m"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => toggleDailyHighlight(t.id)}
+                              className="p-1 rounded-md text-amber-500 hover:bg-amber-500/15 transition-colors cursor-pointer shrink-0"
+                              title="Toggle Primary Highlight status"
+                            >
+                              <span className="material-symbols-outlined text-[18px] fill-1">star</span>
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-outline-variant/10 text-[11px]">
+                            <span className="text-outline font-label-sm">
+                              {t.completed ? "✅ Completed" : "⚡ In Progress"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                resetTimer();
+                                startTimer();
+                              }}
+                              className="text-primary hover:underline font-semibold flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">play_circle</span>
+                              <span>Focus</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
                 {/* PRIORITY TASK QUEUE */}
                 <section className="flex flex-col gap-y-space-md">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
@@ -1291,31 +1866,44 @@ export default function Dashboard() {
                         Smart Priority Queue
                       </h2>
                       <p className="font-body-sm text-body-sm text-outline">
-                        Organized dynamically by cognitive load &amp; deadline urgency
+                        Pending Today &amp; Backlog Tasks • Completed tasks archived
                       </p>
                     </div>
 
-                    {/* Segmented Filter */}
-                    <div className="inline-flex p-1 rounded-lg bg-surface-container-high gap-0.5 select-none self-start sm:self-auto">
-                      {[
-                        { key: "all", label: `All (${tasks.length})` },
-                        { key: "high-impact", label: "High Impact" },
-                        { key: "quick-wins", label: "Quick Wins" },
-                        { key: "habits", label: "Personal" },
-                      ].map((f) => (
-                        <button
-                          key={f.key}
-                          onClick={() => setActiveFilter(f.key)}
-                          className={`px-3 py-1.5 rounded-md font-label-md text-label-md transition-all cursor-pointer ${
-                            activeFilter === f.key
-                              ? "bg-surface-container-lowest text-on-surface shadow-sm font-semibold"
-                              : "text-on-surface-variant hover:text-on-surface"
-                          }`}
-                          type="button"
-                        >
-                          {f.label}
-                        </button>
-                      ))}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Segmented Filter */}
+                      <div className="inline-flex p-1 rounded-lg bg-surface-container-high gap-0.5 select-none self-start sm:self-auto">
+                        {[
+                          { key: "all", label: `All Pending (${pendingTasks.length})` },
+                          { key: "today", label: `Today (${pendingTodayTasks.length})` },
+                          { key: "backlog", label: `Backlog (${pendingBacklogTasks.length})` },
+                          { key: "high-impact", label: "High Impact" },
+                        ].map((f) => (
+                          <button
+                            key={f.key}
+                            onClick={() => setActiveFilter(f.key)}
+                            className={`px-3 py-1.5 rounded-md font-label-md text-label-md transition-all cursor-pointer ${
+                              activeFilter === f.key
+                                ? "bg-surface-container-lowest text-on-surface shadow-sm font-semibold"
+                                : "text-on-surface-variant hover:text-on-surface"
+                            }`}
+                            type="button"
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Customize Labels Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowLabelCustomizer(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-all cursor-pointer border border-outline-variant/20 shadow-xs"
+                        title="Customize Priorities and Category Labels"
+                      >
+                        <span className="material-symbols-outlined text-[17px] text-primary">palette</span>
+                        <span>Labels &amp; Priorities</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1355,11 +1943,11 @@ export default function Dashboard() {
                     ) : filteredTasks.length === 0 ? (
                       <div className="p-8 text-center text-outline bg-surface-container-lowest rounded-xl border border-dashed border-outline-variant/30">
                         <span className="material-symbols-outlined text-3xl mb-1 text-primary/60">task_alt</span>
-                        <p className="font-headline-sm font-semibold text-on-surface">No tasks in this view</p>
+                        <p className="font-headline-sm font-semibold text-on-surface">No pending tasks in this view</p>
                         <p className="font-body-sm text-outline mt-1">
                           {searchQuery.trim()
-                            ? "No tasks match your search keyword. Try clearing the filter or searching for another keyword."
-                            : 'Click "Plan Next Block" or create a new task to get started.'}
+                            ? "No pending tasks match your search keyword. Try clearing the filter or searching for another keyword."
+                            : 'All clear! Click "Plan Next Block" or create a new task to get started.'}
                         </p>
                       </div>
                     ) : (
@@ -1367,7 +1955,12 @@ export default function Dashboard() {
                         <div
                           id={`task-card-${t.id}`}
                           key={t.id}
-                          className={`group relative p-space-md rounded-xl bg-surface-container-lowest shadow-sm hover:shadow-md transition-all flex flex-col gap-y-space-sm border border-outline-variant/10 ${
+                          onClick={() => setSelectedTaskId(t.id)}
+                          className={`group relative p-space-md rounded-xl bg-surface-container-lowest shadow-sm hover:shadow-md transition-all flex flex-col gap-y-space-sm border cursor-pointer ${
+                            selectedTaskId === t.id
+                              ? "border-primary ring-2 ring-primary/20 shadow-md"
+                              : "border-outline-variant/10"
+                          } ${
                             t.completed ? "opacity-75" : ""
                           }`}
                         >
@@ -1375,17 +1968,21 @@ export default function Dashboard() {
                             <div className="flex items-start gap-space-sm min-w-0">
                               {/* Interactive Checkbox */}
                               <button
-                                onClick={() => toggleTaskCompletion(t.id)}
-                                className={`mt-1 w-5 h-5 rounded-md flex items-center justify-center cursor-pointer transition-all flex-shrink-0 ${
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleTaskCompletion(t.id);
+                                }}
+                                className={`mt-1 w-5 h-5 rounded-md flex items-center justify-center cursor-pointer transition-all flex-shrink-0 group/chk ${
                                   t.completed
                                     ? "bg-secondary text-on-secondary"
-                                    : "bg-surface-container-lowest text-transparent hover:bg-primary/10 border border-outline-variant"
+                                    : "bg-surface-container-lowest text-transparent hover:text-primary hover:bg-primary/10 border border-outline-variant"
                                 }`}
+                                title="Mark task completed"
                                 type="button"
                               >
                                 <span
                                   className={`material-symbols-outlined text-[16px] ${
-                                    t.completed ? "opacity-100" : "opacity-0"
+                                    t.completed ? "opacity-100" : "opacity-0 group-hover/chk:opacity-100"
                                   }`}
                                 >
                                   check
@@ -1394,17 +1991,33 @@ export default function Dashboard() {
 
                               <div className="min-w-0">
                                 <div className="flex items-center gap-space-xs flex-wrap">
-                                  <span
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-label-sm text-label-sm font-semibold ${
-                                      t.category === "high-impact"
-                                        ? "bg-error-container text-on-error-container"
-                                        : t.category === "quick-wins"
-                                          ? "bg-secondary-container text-on-secondary-container"
-                                          : "bg-surface-container-high text-on-surface-variant"
-                                    }`}
-                                  >
-                                    {t.priority}
-                                  </span>
+                                  {t.isHighlight && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-400 font-label-sm text-[11px] font-bold shadow-xs">
+                                      <span className="material-symbols-outlined text-[13px] fill-1 text-amber-500">star</span>
+                                      Primary Highlight
+                                    </span>
+                                  )}
+                                  {t.priority && (() => {
+                                    const pStyle = getLabelStyle(t.priority);
+                                    return (
+                                      <span
+                                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-label-sm text-[11px] font-bold border ${pStyle.bg} ${pStyle.border}`}
+                                      >
+                                        <span className={`w-1.5 h-1.5 rounded-full ${pStyle.dot}`} />
+                                        {t.priority}
+                                      </span>
+                                    );
+                                  })()}
+                                  {t.category && (() => {
+                                    const cStyle = getLabelStyle(t.category);
+                                    return (
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-label-sm text-[11px] font-medium border ${cStyle.bg} ${cStyle.border}`}
+                                      >
+                                        {t.category}
+                                      </span>
+                                    );
+                                  })()}
                                   {t.duration && (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm font-medium">
                                       <span className="material-symbols-outlined text-[13px] text-tertiary">
@@ -1416,6 +2029,17 @@ export default function Dashboard() {
                                   {t.effort && (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm font-medium">
                                       {t.effort}
+                                    </span>
+                                  )}
+                                  {t.status === "backlog" && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container-high text-outline font-label-sm text-label-sm font-medium">
+                                      Backlog
+                                    </span>
+                                  )}
+                                  {(t.rolledOverAt || t.rolloverDate) && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 font-label-sm text-label-sm font-semibold">
+                                      <span className="material-symbols-outlined text-[13px]">history</span>
+                                      Rolled Over
                                     </span>
                                   )}
                                 </div>
@@ -1430,11 +2054,30 @@ export default function Dashboard() {
                                 <p className="font-body-sm text-body-sm text-on-surface-variant line-clamp-1 mt-0.5">
                                   {t.description}
                                 </p>
+                                <RolloverDiagnosticBanner task={t} className="mt-2.5" />
                               </div>
                             </div>
 
                             {/* Quick action icons */}
                             <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleDailyHighlight(t.id);
+                                }}
+                                className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                  t.isHighlight
+                                    ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25 border border-amber-500/30"
+                                    : "bg-surface-container hover:bg-amber-500/10 text-on-surface-variant hover:text-amber-500"
+                                }`}
+                                title={t.isHighlight ? "Remove Primary Highlight status" : "Designate as Today's Primary Highlight"}
+                                type="button"
+                              >
+                                <span className={`material-symbols-outlined text-[18px] ${t.isHighlight ? "fill-1" : ""}`}>
+                                  {t.isHighlight ? "star" : "star_outline"}
+                                </span>
+                              </button>
+
                               <button
                                 onClick={() => {
                                   resetTimer();
@@ -1500,9 +2143,9 @@ export default function Dashboard() {
 
                 {/* DAILY RHYTHM TIMELINE */}
                 <section className="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-y-space-md border border-outline-variant/10">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="font-headline-sm text-headline-sm text-on-surface font-bold">
                           Daily Rhythm Timeline
                         </h2>
@@ -1511,26 +2154,112 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <p className="font-body-sm text-body-sm text-outline">
-                        Synchronized in real-time with your system clock and cognitive cycles
+                        Synchronized with your <strong className="text-on-surface font-semibold">{activeChrono.name}</strong> circadian rhythm ({activeChrono.windowLabel})
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Interactive Chronotype Switcher */}
+                      <div className="inline-flex p-1 rounded-lg bg-surface-container-high gap-0.5 select-none">
+                        {[
+                          { id: "lark", label: "Lark", icon: "wb_sunny", tip: "Morning Lark (08:30 – 12:30)" },
+                          { id: "falcon", label: "Falcon", icon: "flare", tip: "Steady Falcon (11:00 – 03:30)" },
+                          { id: "owl", label: "Owl", icon: "nightlight", tip: "Night Owl (05:00 – 10:00)" },
+                        ].map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleUpdateChronotype(c.id)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-label-sm font-medium transition-all cursor-pointer ${
+                              chronotype === c.id
+                                ? "bg-surface-container-lowest text-primary shadow-sm font-bold"
+                                : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container"
+                            }`}
+                            title={c.tip}
+                          >
+                            <span className="material-symbols-outlined text-[14px]">{c.icon}</span>
+                            <span>{c.label}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Customize Schedule Button */}
+                      <button
+                        type="button"
+                        onClick={handleOpenScheduleCustomizer}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-label-sm font-medium transition-all cursor-pointer border border-outline-variant/20 shadow-xs"
+                        title="Customize Circadian Rhythm & Focus Blocks"
+                      >
+                        <span className="material-symbols-outlined text-[15px] text-primary">tune</span>
+                        <span>Customize</span>
+                      </button>
+
+                      {/* Live Block Status Badge */}
                       {activeTimelineBlock ? (
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-on-primary font-tabular-mono text-label-sm font-bold shadow-sm">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-on-primary font-tabular-mono text-label-sm font-bold shadow-sm">
                           <span className="w-2 h-2 rounded-full bg-white animate-ping" />
                           <span>ACTIVE: {activeTimelineBlock.timeLabel}</span>
                         </div>
-                      ) : nowDecimal < 8.5 ? (
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-container text-on-surface-variant font-tabular-mono text-label-sm font-semibold">
+                      ) : nowDecimal < activeChrono.timelineStart ? (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-on-surface-variant font-tabular-mono text-label-sm font-semibold">
                           <span className="w-2 h-2 rounded-full bg-outline" />
-                          <span>STARTS AT 08:30 AM</span>
+                          <span>STARTS AT {activeChrono.ticks[0]}</span>
                         </div>
                       ) : (
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary-container text-on-secondary-container font-tabular-mono text-label-sm font-semibold">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary-container text-on-secondary-container font-tabular-mono text-label-sm font-semibold">
                           <span className="w-2 h-2 rounded-full bg-secondary" />
-                          <span>EVENING RECHARGE</span>
+                          <span>RECHARGE &amp; WIND-DOWN</span>
                         </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Auto-Rescheduling Assistant Controls & Status */}
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-surface-container-low border border-outline-variant/15 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px] text-amber-500">auto_schedule</span>
+                      <span className="font-label-sm text-label-sm font-semibold text-on-surface">
+                        Auto-Rescheduling Assistant:
+                      </span>
+                      {effectiveOvertimeMinutes > 0 ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-tabular-mono text-[11px] font-bold border border-amber-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          +{effectiveOvertimeMinutes}m downstream ripple active &bull; 0 overlaps
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-outline font-tabular-mono">
+                          Downstream blocks auto-adjust dynamically on deep focus overtime
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-outline font-medium mr-0.5">Nudge Overtime:</span>
+                      <button
+                        type="button"
+                        onClick={() => setOvertimeMinutes((prev) => prev + 15)}
+                        className="px-2 py-1 rounded-md bg-surface-container hover:bg-surface-container-high text-on-surface font-tabular-mono text-[11px] font-semibold transition-all cursor-pointer border border-outline-variant/20 hover:border-primary/30"
+                        title="Push deep focus by +15m and cascade downstream"
+                      >
+                        +15m
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOvertimeMinutes((prev) => prev + 30)}
+                        className="px-2 py-1 rounded-md bg-surface-container hover:bg-surface-container-high text-on-surface font-tabular-mono text-[11px] font-semibold transition-all cursor-pointer border border-outline-variant/20 hover:border-primary/30"
+                        title="Push deep focus by +30m and cascade downstream"
+                      >
+                        +30m
+                      </button>
+                      {effectiveOvertimeMinutes > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setOvertimeMinutes(0)}
+                          className="px-2 py-1 rounded-md bg-error/10 hover:bg-error/20 text-error font-tabular-mono text-[11px] font-semibold transition-all cursor-pointer border border-error/20"
+                          title="Reset schedule to standard chronotype cadence"
+                        >
+                          Reset
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1538,16 +2267,14 @@ export default function Dashboard() {
                   {/* Visual Timeline Bar */}
                   <div className="space-y-space-xs">
                     <div className="grid grid-cols-5 text-center font-tabular-mono text-label-sm text-outline px-1">
-                      <div>08:30 AM</div>
-                      <div>09:30 AM</div>
-                      <div>12:30 PM</div>
-                      <div>01:30 PM</div>
-                      <div>05:30 PM</div>
+                      {activeChrono.ticks.map((tick, i) => (
+                        <div key={i}>{tick}</div>
+                      ))}
                     </div>
 
                     <div className="relative h-16 w-full rounded-xl bg-surface-container overflow-hidden flex items-stretch p-1 gap-1.5 shadow-inner">
                       {/* Real-time Indicator Line */}
-                      {nowDecimal >= 8.5 && nowDecimal <= 17.5 && (
+                      {nowDecimal >= activeChrono.timelineStart && nowDecimal <= activeChrono.timelineEnd && (
                         <div
                           className="absolute top-0 bottom-0 z-20 pointer-events-none transition-all duration-1000 ease-linear flex flex-col items-center"
                           style={{ left: `${timelineProgressPercent}%` }}
@@ -1732,6 +2459,15 @@ export default function Dashboard() {
                         {habits.filter((h) => h.done).length} of {habits.length} done
                       </span>
                       <button
+                        onClick={() => setShowHabitManagerModal(true)}
+                        className="px-2 py-1 rounded-md text-[11px] font-semibold bg-secondary/10 hover:bg-secondary/20 text-secondary transition-colors cursor-pointer flex items-center gap-1 border border-secondary/20"
+                        title="Configure Habit Cadence & Streak Shields"
+                        type="button"
+                      >
+                        <span className="material-symbols-outlined text-[13px]">shield</span>
+                        <span>Shields &amp; Cadence</span>
+                      </button>
+                      <button
                         onClick={() => setShowNewHabitInput(!showNewHabitInput)}
                         className="w-6 h-6 rounded-md flex items-center justify-center text-outline hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
                         title="Add Habit"
@@ -1797,18 +2533,46 @@ export default function Dashboard() {
                             >
                               <span className="material-symbols-outlined text-[15px]">check</span>
                             </span>
-                            <span
-                              className={`font-body-sm text-body-sm truncate ${
-                                h.done ? "line-through text-outline" : "text-on-surface"
-                              }`}
-                            >
-                              {h.title}
-                            </span>
+                            <div className="min-w-0">
+                              <p
+                                className={`font-body-sm text-body-sm truncate ${
+                                  h.done ? "line-through text-outline" : "text-on-surface font-medium"
+                                }`}
+                              >
+                                {h.title}
+                              </p>
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                <span className="font-tabular-mono text-[11px] text-outline">
+                                  {h.duration || "15m"}
+                                </span>
+                                <span className="text-outline">&bull;</span>
+                                <span className="px-1.5 py-0.2 rounded bg-surface-container text-[10px] uppercase font-bold text-on-surface-variant font-tabular-mono">
+                                  {h.cadence === "weekdays" ? "Mon-Fri" : h.cadence === "weekly" ? "Weekly" : h.cadence === "custom" ? "3x/Wk" : "Daily"}
+                                </span>
+                                <span className="text-[11px] font-bold text-amber-500 font-tabular-mono flex items-center gap-0.5">
+                                  🔥 {h.streak || 0}d
+                                </span>
+                                <span
+                                  className="text-[11px] font-semibold text-secondary font-tabular-mono flex items-center gap-0.5"
+                                  title={`${h.streakShields ?? 2} Streak Shields available (grace days protect against resets)`}
+                                >
+                                  🛡️ {h.streakShields ?? 2}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                            <span className="font-tabular-mono text-label-sm text-outline">
-                              {h.duration} · {h.done ? "Done" : "Pending"}
-                            </span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowHabitManagerModal(true);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1 hover:text-primary text-outline transition-all cursor-pointer"
+                              title="Configure Cadence & Streak Shields"
+                              type="button"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">tune</span>
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1863,34 +2627,73 @@ export default function Dashboard() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-label-md font-medium text-on-surface mb-1">
-                    Priority / Tier
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-label-md font-medium text-on-surface">
+                      Priority Level
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowLabelCustomizer(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">palette</span>
+                      <span>Customize</span>
+                    </button>
+                  </div>
                   <select
-                    value={newTaskCategory}
-                    onChange={(e) => setNewTaskCategory(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none"
+                    value={newTaskPriority}
+                    onChange={(e) => setNewTaskPriority(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none cursor-pointer"
                   >
-                    <option value="high-impact">High Impact (P1)</option>
-                    <option value="quick-wins">Quick Wins (P2)</option>
-                    <option value="habits">Personal / Habit (P3)</option>
+                    {taskLabels.filter((l) => l.type === "priority").map((l) => (
+                      <option key={l.id} value={l.name}>
+                        {l.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-label-md font-medium text-on-surface mb-1">
-                    Estimated Time
-                  </label>
-                  <input
-                    type="text"
-                    value={newTaskDuration}
-                    onChange={(e) => setNewTaskDuration(e.target.value)}
-                    placeholder="e.g. 45 min"
-                    className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-label-md font-medium text-on-surface">
+                      Category Tag
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowLabelCustomizer(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">palette</span>
+                      <span>Customize</span>
+                    </button>
+                  </div>
+                  <select
+                    value={newTaskCategory}
+                    onChange={(e) => setNewTaskCategory(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none cursor-pointer"
+                  >
+                    {taskLabels.filter((l) => l.type === "category").map((l) => (
+                      <option key={l.id} value={l.name}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-label-md font-medium text-on-surface mb-1">
+                  Estimated Time
+                </label>
+                <input
+                  type="text"
+                  value={newTaskDuration}
+                  onChange={(e) => setNewTaskDuration(e.target.value)}
+                  placeholder="e.g. 30 min, 45 min, 1h"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1956,34 +2759,73 @@ export default function Dashboard() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-label-md font-medium text-on-surface mb-1">
-                    Priority / Tier
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-label-md font-medium text-on-surface">
+                      Priority Level
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowLabelCustomizer(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">palette</span>
+                      <span>Customize</span>
+                    </button>
+                  </div>
+                  <select
+                    value={editTaskPriority}
+                    onChange={(e) => setEditTaskPriority(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none cursor-pointer"
+                  >
+                    {taskLabels.filter((l) => l.type === "priority").map((l) => (
+                      <option key={l.id} value={l.name}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-label-md font-medium text-on-surface">
+                      Category Tag
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowLabelCustomizer(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">palette</span>
+                      <span>Customize</span>
+                    </button>
+                  </div>
                   <select
                     value={editTaskCategory}
                     onChange={(e) => setEditTaskCategory(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none cursor-pointer"
                   >
-                    <option value="high-impact">High Impact (P1)</option>
-                    <option value="quick-wins">Quick Wins (P2)</option>
-                    <option value="habits">Personal / Habit (P3)</option>
+                    {taskLabels.filter((l) => l.type === "category").map((l) => (
+                      <option key={l.id} value={l.name}>
+                        {l.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-label-md font-medium text-on-surface mb-1">
-                    Estimated Time
-                  </label>
-                  <input
-                    type="text"
-                    value={editTaskDuration}
-                    onChange={(e) => setEditTaskDuration(e.target.value)}
-                    placeholder="e.g. 45 min"
-                    className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none"
-                  />
-                </div>
+              <div>
+                <label className="block text-label-md font-medium text-on-surface mb-1">
+                  Estimated Time
+                </label>
+                <input
+                  type="text"
+                  value={editTaskDuration}
+                  onChange={(e) => setEditTaskDuration(e.target.value)}
+                  placeholder="e.g. 30 min, 45 min, 1h"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-low text-on-surface outline-none"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -2110,6 +2952,201 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* SCHEDULE & CIRCADIAN CUSTOMIZER MODAL */}
+      {showScheduleCustomizer && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-lg bg-surface-container-lowest rounded-2xl shadow-2xl p-6 space-y-5 border border-outline-variant/30 animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-outline-variant/20 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[24px]">routine</span>
+                <h3 className="text-headline-sm font-bold text-on-surface">Circadian Schedule &amp; Rhythm</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowScheduleCustomizer(false)}
+                className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveScheduleCustomizer} className="space-y-4">
+              {/* Chronotype Selection */}
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface mb-2">
+                  Select Your Circadian Chronotype
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {[
+                    {
+                      id: "lark",
+                      name: "Morning Lark",
+                      icon: "wb_sunny",
+                      peak: "08:30 – 12:30",
+                      desc: "Early peak focus",
+                      color: "text-amber-500",
+                    },
+                    {
+                      id: "falcon",
+                      name: "Steady Falcon",
+                      icon: "flare",
+                      peak: "11:00 – 03:30",
+                      desc: "Midday cadence",
+                      color: "text-primary",
+                    },
+                    {
+                      id: "owl",
+                      name: "Night Owl",
+                      icon: "nightlight",
+                      peak: "05:00 – 10:00",
+                      desc: "Evening flow surge",
+                      color: "text-tertiary",
+                    },
+                  ].map((c) => {
+                    const isSelected = customChronoChoice === c.id;
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => setCustomChronoChoice(c.id)}
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
+                          isSelected
+                            ? "bg-primary/10 border-primary ring-2 ring-primary/20 shadow-xs"
+                            : "bg-surface-container-low hover:bg-surface-container border-outline-variant/20"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`material-symbols-outlined text-[20px] ${c.color}`}>{c.icon}</span>
+                          {isSelected && (
+                            <span className="w-2 h-2 rounded-full bg-primary" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-label-md text-label-md font-bold text-on-surface">{c.name}</p>
+                          <p className="font-tabular-mono text-[11px] text-primary font-semibold mt-0.5">{c.peak}</p>
+                          <p className="text-[11px] text-outline mt-0.5">{c.desc}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Target Focus Blocks */}
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface mb-2">
+                  Daily Target Focus Blocks
+                </label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {[
+                    { blocks: 3, label: "3 Blocks", sub: "Light / Agile" },
+                    { blocks: 5, label: "5 Blocks", sub: "Balanced / Flow" },
+                    { blocks: 8, label: "8 Blocks", sub: "Intensive / Sprint" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.blocks}
+                      type="button"
+                      onClick={() => setCustomTargetBlocks(opt.blocks)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        Number(customTargetBlocks) === opt.blocks
+                          ? "bg-primary text-on-primary border-primary shadow-xs font-bold"
+                          : "bg-surface-container-low hover:bg-surface-container border-outline-variant/20 text-on-surface"
+                      }`}
+                    >
+                      <div className="font-label-md text-label-md font-semibold">{opt.label}</div>
+                      <div className={`text-[10px] ${Number(customTargetBlocks) === opt.blocks ? "text-on-primary/80" : "text-outline"}`}>
+                        {opt.sub}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Preview of Timeline Schedule */}
+              <div className="p-3 rounded-xl bg-surface-container-high/60 border border-outline-variant/20 space-y-1.5">
+                <span className="text-[11px] font-semibold text-outline uppercase tracking-wider block">
+                  Timeline Cadence Preview
+                </span>
+                <div className="flex items-center gap-1.5 text-body-sm text-on-surface">
+                  <span className="font-semibold text-primary">
+                    {CHRONO_CONFIG[customChronoChoice]?.name || "Schedule"}:
+                  </span>
+                  <span className="font-tabular-mono text-outline">
+                    {CHRONO_CONFIG[customChronoChoice]?.windowLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 text-center font-tabular-mono text-[10px] text-outline pt-1">
+                  {CHRONO_CONFIG[customChronoChoice]?.ticks.map((t, i) => (
+                    <div key={i}>{t}</div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-outline-variant/20">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleCustomizer(false)}
+                  className="px-4 py-2 rounded-lg bg-surface-container text-on-surface-variant text-label-md hover:bg-surface-container-high transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-primary text-on-primary text-label-md font-semibold hover:bg-primary-container transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-[16px]">check</span>
+                  <span>Apply Schedule</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* LABEL CUSTOMIZER MODAL */}
+      <LabelCustomizerModal
+        isOpen={showLabelCustomizer}
+        onClose={() => setShowLabelCustomizer(false)}
+      />
+
+      {/* QUICK CAPTURE MODAL (C) */}
+      <QuickCaptureModal
+        isOpen={showQuickCapture}
+        onClose={() => setShowQuickCapture(false)}
+        onTaskCreated={(task) => setSelectedTaskId(task.id)}
+      />
+
+      {/* ZEN FOCUS DECK (F) */}
+      <ZenFocusDeck
+        isOpen={showZenDeck}
+        onClose={() => setShowZenDeck(false)}
+      />
+
+      {/* SHORTCUTS HELP MODAL (?) */}
+      <ShortcutsHelpModal
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+      />
+
+      {/* RECURRING RITUALS & HABIT STREAKS ENGINE MODAL */}
+      <HabitManagerModal
+        isOpen={showHabitManagerModal}
+        onClose={() => setShowHabitManagerModal(false)}
+      />
+
+      {/* MORNING PLANNING RITUAL MODAL */}
+      <MorningPlanningModal
+        isOpen={showMorningPlanningModal}
+        onClose={() => setShowMorningPlanningModal(false)}
+        initialStep={morningPlanningStep}
+      />
+
+      {/* EVENING DAILY SHUTDOWN & REFLECTION MODAL */}
+      <EveningShutdownModal
+        isOpen={showEveningShutdownModal}
+        onClose={() => setShowEveningShutdownModal(false)}
+        onEnterRechargeMode={() => setIsRechargeMode(true)}
+      />
     </div>
   );
 }

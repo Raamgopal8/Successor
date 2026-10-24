@@ -2,6 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import image from "../assets/logo.png";
 import { useApp } from "../context/AppContext";
+import LabelCustomizerModal from "./LabelCustomizerModal";
+import QuickCaptureModal from "./QuickCaptureModal";
+import ZenFocusDeck from "./ZenFocusDeck";
+import ShortcutsHelpModal from "./ShortcutsHelpModal";
+import RolloverDiagnosticBanner from "./RolloverDiagnosticBanner";
+import OverloadGuardMeter from "./OverloadGuardMeter";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 const COLUMNS = [
   { id: "backlog", title: "Backlog", dotColor: "bg-outline", countBg: "bg-surface-container-highest" },
@@ -23,6 +30,9 @@ export default function Board() {
     tasks,
     moveTaskStatus,
     createTask,
+    updateTask,
+    taskLabels,
+    getLabelStyle,
     habitsCount,
     activeTasksCount,
     highImpactCount,
@@ -31,6 +41,7 @@ export default function Board() {
     timerRunning,
     startTimer,
     pauseTimer,
+    toggleDailyHighlight,
   } = useApp();
 
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -39,6 +50,7 @@ export default function Board() {
   const [showInspector, setShowInspector] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [showLabelCustomizer, setShowLabelCustomizer] = useState(false);
   const searchContainerRef = useRef(null);
   const searchInputRef = useRef(null);
 
@@ -70,7 +82,13 @@ export default function Board() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskStatus, setNewTaskStatus] = useState("ready");
-  const [newTaskCategory, setNewTaskCategory] = useState("");
+  const [newTaskCategory, setNewTaskCategory] = useState("Work Sprint");
+  const [newTaskPriority, setNewTaskPriority] = useState("P1 Urgent & High Impact");
+
+  // Phase 1: Quick Capture, Zen Deck, and Shortcuts Help States
+  const [showQuickCapture, setShowQuickCapture] = useState(false);
+  const [showZenDeck, setShowZenDeck] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   // Redirect if logged out
   useEffect(() => {
@@ -81,6 +99,37 @@ export default function Board() {
 
   // Selected Task reference
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || tasks[0] || null;
+
+  // Power user keyboard shortcuts (C, X, Space, 1-3, F, ?)
+  useKeyboardShortcuts({
+    onQuickCapture: () => setShowQuickCapture(true),
+    onToggleZen: () => setShowZenDeck((prev) => !prev),
+    onToggleTimer: () => {
+      if (timerRunning) pauseTimer();
+      else startTimer();
+    },
+    onToggleActiveTask: () => {
+      if (selectedTask) {
+        updateTask(selectedTask.id, {
+          completed: !selectedTask.completed,
+          status: !selectedTask.completed ? "completed" : "ready",
+        });
+      }
+    },
+    onSetPriority: (newPriority) => {
+      if (selectedTask) {
+        updateTask(selectedTask.id, { priority: newPriority });
+      }
+    },
+    onShowShortcuts: () => setShowShortcutsHelp(true),
+    disabled:
+      showQuickCapture ||
+      showZenDeck ||
+      showShortcutsHelp ||
+      showAddModal ||
+      showLabelCustomizer ||
+      isSearchOpen,
+  });
 
   const handleDragStart = (e, taskId) => {
     e.dataTransfer.setData("text/plain", taskId);
@@ -101,13 +150,16 @@ export default function Board() {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
+    const chosenPriority = newTaskPriority || (newTaskStatus === "ready" ? "P1 Urgent & High Impact" : "P2 Strategic");
+    const chosenCategory = newTaskCategory || "Work Sprint";
+
     const created = await createTask({
       title: newTaskTitle.trim(),
       description: "Added directly from Sprint Board.",
       status: newTaskStatus || "ready",
-      category: newTaskCategory || "Work Sprint",
-      effort: newTaskStatus === "ready" ? "⚡⚡⚡ Deep" : "⚡⚡ Med",
-      priority: newTaskStatus === "ready" ? "P1 Urgent" : "P2 Med",
+      category: chosenCategory,
+      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") ? "⚡⚡⚡ Deep" : "⚡⚡ Med",
+      priority: chosenPriority,
       assignee: displayName?.slice(0, 2).toUpperCase() || "YOU",
     });
 
@@ -699,6 +751,30 @@ export default function Board() {
           </div>
 
           <div className="flex items-center gap-space-md">
+            {/* Quick Capture Pill (C) */}
+            <button
+              onClick={() => setShowQuickCapture(true)}
+              title="Quick Capture with Natural Language (Press C)"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary text-label-sm font-semibold transition-all cursor-pointer border border-primary/20 shadow-xs"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[17px]">bolt</span>
+              <span>Quick Add</span>
+              <kbd className="px-1.5 py-0.2 rounded bg-primary/20 text-[10px] font-mono text-primary font-bold">C</kbd>
+            </button>
+
+            {/* Zen Deck Pill (F) */}
+            <button
+              onClick={() => setShowZenDeck(true)}
+              title="Full-screen Zen Focus Deck (Press F)"
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-label-sm font-medium transition-all cursor-pointer border border-outline-variant/20 shadow-xs"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[17px] text-tertiary">self_improvement</span>
+              <span>Zen Deck</span>
+              <kbd className="px-1.5 py-0.2 rounded bg-surface-container-highest text-[10px] font-mono text-outline">F</kbd>
+            </button>
+
             {/* Live Shared Focus Session Pill */}
             <div className="flex items-center gap-space-xs px-space-sm py-1.5 rounded-full bg-surface-container-high text-on-surface shadow-[0_1px_3px_0_rgba(15,23,42,0.04)]">
               <span className="material-symbols-outlined text-tertiary text-[18px]">timer</span>
@@ -708,13 +784,23 @@ export default function Board() {
                 onClick={() => (timerRunning ? pauseTimer() : startTimer())}
                 className="ml-1 w-5 h-5 flex items-center justify-center rounded-full bg-primary text-on-primary hover:bg-primary-container transition-colors cursor-pointer"
                 type="button"
-                title={timerRunning ? "Pause timer" : "Start timer"}
+                title={timerRunning ? "Pause timer (Space)" : "Start timer (Space)"}
               >
                 <span className="material-symbols-outlined text-[12px]">
                   {timerRunning ? "pause" : "play_arrow"}
                 </span>
               </button>
             </div>
+
+            {/* Shortcuts Help Button (?) */}
+            <button
+              onClick={() => setShowShortcutsHelp(true)}
+              title="Keyboard Shortcuts Cheatsheet (Press ?)"
+              className="p-2 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[20px]">keyboard</span>
+            </button>
 
             <button
               onClick={handleLogout}
@@ -766,6 +852,25 @@ export default function Board() {
 
                 {/* Action Utilities */}
                 <div className="flex items-center gap-space-sm">
+                  <button
+                    onClick={() => setShowQuickCapture(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-body-sm font-medium shadow-sm transition-all cursor-pointer border border-outline-variant/20"
+                    type="button"
+                    title="Quick natural language task capture (C)"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-amber-500">bolt</span>
+                    <span>Quick NLP Add</span>
+                    <kbd className="px-1.5 py-0.5 rounded bg-surface-container-highest text-[10px] font-mono text-outline">C</kbd>
+                  </button>
+                  <button
+                    onClick={() => setShowLabelCustomizer(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-body-sm font-medium shadow-sm transition-all cursor-pointer border border-outline-variant/20"
+                    type="button"
+                    title="Customize Priorities and Category Labels"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-primary">palette</span>
+                    <span>Labels &amp; Priorities</span>
+                  </button>
                   <button
                     onClick={() => setShowInspector(!showInspector)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-body-sm font-medium shadow-sm transition-all cursor-pointer"
@@ -867,6 +972,9 @@ export default function Board() {
               </div>
             )}
 
+            {/* Daily Workload Capacity Warning: Overload Guard */}
+            <OverloadGuardMeter className="mb-space-md" />
+
             {/* KANBAN COLUMNS + INSPECTOR DRAWER SPLIT */}
             <div className="flex gap-space-lg items-start w-full min-h-[calc(100vh-230px)] overflow-x-auto pb-6">
               {/* 5 Column Canvas */}
@@ -931,17 +1039,66 @@ export default function Board() {
                               {isSelected && <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />}
 
                               <div className="flex items-start justify-between gap-1 mb-2 mt-0.5">
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="material-symbols-outlined text-outline/40 group-hover:text-outline text-[16px] cursor-grab">
                                     drag_indicator
                                   </span>
-                                  <span className="px-2 py-0.5 rounded-md bg-surface-container font-label-sm text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-                                    {task.category || "Sprint"}
+                                  {task.category && (() => {
+                                    const cStyle = getLabelStyle(task.category);
+                                    return (
+                                      <span className={`px-2 py-0.5 rounded-md font-label-sm text-[10px] uppercase tracking-wider font-semibold border ${cStyle.bg} ${cStyle.border}`}>
+                                        {task.category}
+                                      </span>
+                                    );
+                                  })()}
+                                  {task.priority && (() => {
+                                    const pStyle = getLabelStyle(task.priority);
+                                    return (
+                                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label-sm text-[10px] font-bold border ${pStyle.bg} ${pStyle.border}`}>
+                                        <span className={`w-1 h-1 rounded-full ${pStyle.dot}`} />
+                                        {task.priority}
+                                      </span>
+                                    );
+                                  })()}
+                                  {task.isHighlight && (
+                                    <span
+                                      title="Today's Primary Highlight (Anchor Task)"
+                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-label-sm text-[10px] font-bold bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-400"
+                                    >
+                                      <span className="material-symbols-outlined text-[11px] fill-1 text-amber-500">star</span>
+                                      Highlight
+                                    </span>
+                                  )}
+                                  {(task.rolledOverAt || task.rolloverDate) && (
+                                    <span
+                                      title="Task was not completed within the assigned day and rolled over to backlog"
+                                      className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 font-label-sm text-[10px] uppercase tracking-wider font-semibold flex items-center gap-0.5"
+                                    >
+                                      <span className="material-symbols-outlined text-[11px]">history</span>
+                                      Rolled Over
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleDailyHighlight(task.id);
+                                    }}
+                                    className={`p-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer ${
+                                      task.isHighlight ? "text-amber-500" : "text-outline/40 hover:text-amber-500"
+                                    }`}
+                                    title={task.isHighlight ? "Remove Primary Highlight" : "Designate as Today's Primary Highlight"}
+                                  >
+                                    <span className={`material-symbols-outlined text-[15px] ${task.isHighlight ? "fill-1" : ""}`}>
+                                      {task.isHighlight ? "star" : "star_outline"}
+                                    </span>
+                                  </button>
+                                  <span className="px-1.5 py-0.5 rounded text-[11px] font-tabular-mono text-outline font-medium flex-shrink-0">
+                                    {task.effort || "⚡ Med"}
                                   </span>
                                 </div>
-                                <span className="px-1.5 py-0.5 rounded text-[11px] font-tabular-mono text-outline font-medium">
-                                  {task.effort || "⚡ Med"}
-                                </span>
                               </div>
 
                               <h3
@@ -1029,13 +1186,50 @@ export default function Board() {
                   {/* Task Header & Title */}
                   <div className="pt-space-md space-y-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2 py-0.5 rounded bg-error-container text-on-error-container font-label-sm text-[11px] font-bold">
-                        {selectedTask.priority || "P1 Urgent"}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-surface-container text-on-surface-variant font-label-sm text-[11px] font-medium">
-                        {selectedTask.category || "General"}
-                      </span>
+                      {selectedTask.priority && (() => {
+                        const pStyle = getLabelStyle(selectedTask.priority);
+                        return (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-label-sm text-[11px] font-bold border ${pStyle.bg} ${pStyle.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${pStyle.dot}`} />
+                            {selectedTask.priority}
+                          </span>
+                        );
+                      })()}
+                      {selectedTask.category && (() => {
+                        const cStyle = getLabelStyle(selectedTask.category);
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-label-sm text-[11px] font-medium border ${cStyle.bg} ${cStyle.border}`}>
+                            {selectedTask.category}
+                          </span>
+                        );
+                      })()}
+                      <button
+                        type="button"
+                        onClick={() => toggleDailyHighlight(selectedTask.id)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-label-sm text-[11px] font-bold border transition-all cursor-pointer ${
+                          selectedTask.isHighlight
+                            ? "bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400"
+                            : "bg-surface-container hover:bg-amber-500/10 border-outline-variant/30 text-outline hover:text-amber-500"
+                        }`}
+                        title={selectedTask.isHighlight ? "Remove Primary Highlight" : "Designate as Today's Primary Highlight"}
+                      >
+                        <span className={`material-symbols-outlined text-[13px] ${selectedTask.isHighlight ? "fill-1 text-amber-500" : ""}`}>
+                          {selectedTask.isHighlight ? "star" : "star_outline"}
+                        </span>
+                        <span>{selectedTask.isHighlight ? "Primary Highlight" : "Make Highlight"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowLabelCustomizer(true)}
+                        className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 ml-auto cursor-pointer"
+                        title="Customize Priorities and Category Labels"
+                      >
+                        <span className="material-symbols-outlined text-[13px]">palette</span>
+                        <span>Customize</span>
+                      </button>
                     </div>
+
+                    <RolloverDiagnosticBanner task={selectedTask} className="my-2.5" />
 
                     <h2 className="text-headline-sm font-bold text-on-surface leading-snug">
                       {selectedTask.title}
@@ -1044,6 +1238,53 @@ export default function Board() {
                     <p className="text-body-sm text-on-surface-variant leading-relaxed">
                       {selectedTask.description || "No description provided."}
                     </p>
+                  </div>
+
+                  {/* Quick Priority & Category selectors */}
+                  <div className="grid grid-cols-2 gap-2.5 mt-3 p-3 bg-surface-container-low rounded-xl border border-outline-variant/15">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-outline font-semibold uppercase tracking-wider">Priority</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowLabelCustomizer(true)}
+                          className="text-[10px] text-primary hover:underline font-semibold"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <select
+                        value={selectedTask.priority || ""}
+                        onChange={(e) => updateTask(selectedTask.id, { priority: e.target.value })}
+                        className="w-full px-2 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface text-label-sm outline-none cursor-pointer border border-outline-variant/20 truncate"
+                      >
+                        {taskLabels.filter((l) => l.type === "priority").map((l) => (
+                          <option key={l.id} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-outline font-semibold uppercase tracking-wider">Category</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowLabelCustomizer(true)}
+                          className="text-[10px] text-primary hover:underline font-semibold"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <select
+                        value={selectedTask.category || ""}
+                        onChange={(e) => updateTask(selectedTask.id, { category: e.target.value })}
+                        className="w-full px-2 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface text-label-sm outline-none cursor-pointer border border-outline-variant/20 truncate"
+                      >
+                        {taskLabels.filter((l) => l.type === "category").map((l) => (
+                          <option key={l.id} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Properties Grid */}
@@ -1138,7 +1379,7 @@ export default function Board() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-label-md font-medium text-on-surface mb-1">
                     Initial Column
@@ -1157,17 +1398,58 @@ export default function Board() {
                 </div>
 
                 <div>
-                  <label className="block text-label-md font-medium text-on-surface mb-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-label-md font-medium text-on-surface">
+                      Priority Level
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowLabelCustomizer(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">palette</span>
+                      <span>Customize</span>
+                    </button>
+                  </div>
+                  <select
+                    value={newTaskPriority}
+                    onChange={(e) => setNewTaskPriority(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-surface-container-low text-on-surface outline-none cursor-pointer"
+                  >
+                    {taskLabels.filter((l) => l.type === "priority").map((l) => (
+                      <option key={l.id} value={l.name}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-label-md font-medium text-on-surface">
                     Category Tag
                   </label>
-                  <input
-                    type="text"
-                    value={newTaskCategory}
-                    onChange={(e) => setNewTaskCategory(e.target.value)}
-                    placeholder="e.g. Frontend"
-                    className="w-full px-3 py-2 rounded-lg bg-surface-container-low text-on-surface outline-none"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLabelCustomizer(true)}
+                    className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">palette</span>
+                    <span>Customize</span>
+                  </button>
                 </div>
+                <select
+                  value={newTaskCategory}
+                  onChange={(e) => setNewTaskCategory(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface-container-low text-on-surface outline-none cursor-pointer"
+                >
+                  {taskLabels.filter((l) => l.type === "category").map((l) => (
+                    <option key={l.id} value={l.name}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1189,6 +1471,31 @@ export default function Board() {
           </div>
         </div>
       )}
+
+      {/* LABEL CUSTOMIZER MODAL */}
+      <LabelCustomizerModal
+        isOpen={showLabelCustomizer}
+        onClose={() => setShowLabelCustomizer(false)}
+      />
+
+      {/* QUICK CAPTURE MODAL (C) */}
+      <QuickCaptureModal
+        isOpen={showQuickCapture}
+        onClose={() => setShowQuickCapture(false)}
+        onTaskCreated={(task) => setSelectedTaskId(task.id)}
+      />
+
+      {/* ZEN FOCUS DECK (F) */}
+      <ZenFocusDeck
+        isOpen={showZenDeck}
+        onClose={() => setShowZenDeck(false)}
+      />
+
+      {/* SHORTCUTS HELP MODAL (?) */}
+      <ShortcutsHelpModal
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+      />
     </div>
   );
 }

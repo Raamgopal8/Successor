@@ -33,6 +33,7 @@ export default function Profile() {
     startTimer,
     pauseTimer,
     showToast,
+    runDailyRolloverAndReset,
   } = useApp();
 
   // Active Navigation Tab
@@ -99,6 +100,16 @@ export default function Profile() {
   // Notification Toast & Save Status
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [runningRollover, setRunningRollover] = useState(false);
+
+  const handleTriggerRollover = async () => {
+    setRunningRollover(true);
+    try {
+      await runDailyRolloverAndReset(true);
+    } finally {
+      setRunningRollover(false);
+    }
+  };
 
   // Search & suggestions state
   const [searchQuery, setSearchQuery] = useState("");
@@ -1959,10 +1970,10 @@ export default function Profile() {
                         </span>
                         <div>
                           <p className="font-label-md text-label-md text-on-surface font-semibold">
-                            Smart Daily Rollover
+                            Smart Daily Rollover &amp; Backlog Sync
                           </p>
                           <p className="font-body-sm text-body-sm text-outline">
-                            Auto-reschedule unfinished low &amp; medium priority tasks to tomorrow’s morning queue.
+                            Auto-moves unfinished tasks from today&apos;s sprint queue (Ready, In Progress, Review) to Backlog every day, and resets daily focus blocks &amp; habit counters to 0.
                           </p>
                         </div>
                       </div>
@@ -1975,6 +1986,34 @@ export default function Profile() {
                         />
                         <div className="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
                       </label>
+                    </div>
+
+                    {/* Manual Rollover / Reset Trigger Card */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-space-md rounded-xl bg-surface-container-lowest border border-outline-variant/20 shadow-sm">
+                      <div className="flex items-center gap-space-sm">
+                        <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                          <span className="material-symbols-outlined text-[20px]">restart_alt</span>
+                        </div>
+                        <div>
+                          <p className="font-label-md text-label-md text-on-surface font-semibold">
+                            Trigger Daily Rollover &amp; Reset
+                          </p>
+                          <p className="font-body-sm text-body-sm text-outline">
+                            Last Rollover: <span className="font-tabular-mono text-on-surface font-medium">{userProfile?.lastResetDate || "Pending initial run"}</span> • Today&apos;s Blocks: <span className="font-tabular-mono text-primary font-semibold">{userProfile?.completedBlocks || 0}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleTriggerRollover}
+                        disabled={runningRollover}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-label-md text-label-md font-semibold transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0"
+                      >
+                        <span className={`material-symbols-outlined text-[18px] ${runningRollover ? "animate-spin text-primary" : "text-outline"}`}>
+                          {runningRollover ? "progress_activity" : "history"}
+                        </span>
+                        <span>{runningRollover ? "Processing..." : "Trigger Rollover Now"}</span>
+                      </button>
                     </div>
 
                     {/* Morning Briefing */}

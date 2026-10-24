@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { onAuthStateChanged, signOut, updateProfile as firebaseUpdateProfile } from "firebase/auth";
 import {
   collection,
@@ -11,16 +11,96 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
+export const getLocalDateString = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const AppContext = createContext(null);
 
+export const LABEL_COLOR_OPTIONS = [
+  { key: "error", label: "Red / Urgent", bg: "bg-error-container text-on-error-container", border: "border-error/30", dot: "bg-error" },
+  { key: "primary", label: "Indigo / Primary", bg: "bg-primary-container text-on-primary-container", border: "border-primary/30", dot: "bg-primary" },
+  { key: "secondary", label: "Teal / Ritual", bg: "bg-secondary-container text-on-secondary-container", border: "border-secondary/30", dot: "bg-secondary" },
+  { key: "tertiary", label: "Amber / Strategic", bg: "bg-tertiary-container text-on-tertiary-container", border: "border-tertiary/30", dot: "bg-tertiary" },
+  { key: "emerald", label: "Green / Growth", bg: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300", border: "border-emerald-500/30", dot: "bg-emerald-500" },
+  { key: "purple", label: "Purple / Strategy", bg: "bg-purple-500/15 text-purple-700 dark:text-purple-300", border: "border-purple-500/30", dot: "bg-purple-500" },
+  { key: "blue", label: "Blue / Dev", bg: "bg-blue-500/15 text-blue-700 dark:text-blue-300", border: "border-blue-500/30", dot: "bg-blue-500" },
+  { key: "pink", label: "Pink / Design", bg: "bg-pink-500/15 text-pink-700 dark:text-pink-300", border: "border-pink-500/30", dot: "bg-pink-500" },
+  { key: "orange", label: "Orange / Review", bg: "bg-orange-500/15 text-orange-700 dark:text-orange-300", border: "border-orange-500/30", dot: "bg-orange-500" },
+  { key: "slate", label: "Slate / Neutral", bg: "bg-surface-container-high text-on-surface-variant", border: "border-outline-variant/30", dot: "bg-outline" },
+];
+
+export const DEFAULT_TASK_LABELS = [
+  { id: "lbl-p1", name: "P1 Urgent & High Impact", type: "priority", color: "error" },
+  { id: "lbl-p2", name: "P2 Strategic", type: "priority", color: "tertiary" },
+  { id: "lbl-p3", name: "P3 Maintenance", type: "priority", color: "slate" },
+  { id: "lbl-p4", name: "P4 Low Priority", type: "priority", color: "slate" },
+  { id: "lbl-work", name: "Work Sprint", type: "category", color: "primary" },
+  { id: "lbl-deep", name: "Deep Work", type: "category", color: "tertiary" },
+  { id: "lbl-quick", name: "Quick Wins", type: "category", color: "emerald" },
+  { id: "lbl-personal", name: "Personal Rituals", type: "category", color: "secondary" },
+  { id: "lbl-design", name: "Design System", type: "category", color: "pink" },
+  { id: "lbl-dev", name: "Engineering / Dev", type: "category", color: "blue" },
+];
+
+export const getLabelStyleHelper = (nameOrId, customLabels = DEFAULT_TASK_LABELS) => {
+  if (!nameOrId) {
+    return {
+      bg: "bg-surface-container-high text-on-surface-variant",
+      border: "border-outline-variant/30",
+      dot: "bg-outline",
+    };
+  }
+
+  const str = String(nameOrId).toLowerCase().trim();
+  const list = Array.isArray(customLabels) && customLabels.length > 0 ? customLabels : DEFAULT_TASK_LABELS;
+  const found = list.find(
+    (l) => l.id?.toLowerCase() === str || l.name?.toLowerCase() === str
+  );
+  if (found) {
+    const colorOpt = LABEL_COLOR_OPTIONS.find((c) => c.key === found.color) || LABEL_COLOR_OPTIONS[1];
+    return {
+      bg: colorOpt.bg,
+      border: colorOpt.border,
+      dot: colorOpt.dot,
+    };
+  }
+
+  if (str.includes("p1") || str.includes("urgent") || str.includes("high-impact")) {
+    return LABEL_COLOR_OPTIONS[0];
+  }
+  if (str.includes("p2") || str.includes("strategic") || str.includes("quick-wins")) {
+    return LABEL_COLOR_OPTIONS[3];
+  }
+  if (str.includes("p3") || str.includes("maintenance")) {
+    return LABEL_COLOR_OPTIONS[9];
+  }
+  if (str.includes("deep")) {
+    return LABEL_COLOR_OPTIONS[3];
+  }
+  if (str.includes("personal") || str.includes("habit")) {
+    return LABEL_COLOR_OPTIONS[2];
+  }
+  if (str.includes("work") || str.includes("sprint")) {
+    return LABEL_COLOR_OPTIONS[1];
+  }
+
+  const hash = str.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return LABEL_COLOR_OPTIONS[Math.abs(hash) % LABEL_COLOR_OPTIONS.length];
+};
+
 const INITIAL_HABITS = [
-  { title: "Review daily priority queue", duration: "10m", done: false },
-  { title: "Shield 90m deep work sprint", duration: "90m", done: false },
-  { title: "Midday posture reset & walk", duration: "15m", done: false },
-  { title: "Evening async review & triage", duration: "15m", done: false },
+  { title: "Review daily priority queue", duration: "10m", done: false, cadence: "weekdays", streak: 5, bestStreak: 12, streakShields: 2 },
+  { title: "Shield 90m deep work sprint", duration: "90m", done: false, cadence: "weekdays", streak: 7, bestStreak: 14, streakShields: 2 },
+  { title: "Midday posture reset & walk", duration: "15m", done: false, cadence: "daily", streak: 12, bestStreak: 20, streakShields: 1 },
+  { title: "Evening async review & triage", duration: "15m", done: false, cadence: "daily", streak: 4, bestStreak: 9, streakShields: 2 },
 ];
 
 export function AppProvider({ children }) {
@@ -92,9 +172,12 @@ export function AppProvider({ children }) {
             chronotype: "lark",
             focusDuration: "25",
             focusStreak: 12,
-            completedBlocks: 24,
+            completedBlocks: 0,
+            dailyTargetBlocks: 3,
+            lastResetDate: getLocalDateString(new Date()),
             rolloverEnabled: true,
             briefingEnabled: true,
+            customLabels: DEFAULT_TASK_LABELS,
             defaultProject: "Work Sprint (Active)",
             createdAt: serverTimestamp(),
           };
@@ -219,11 +302,14 @@ export function AppProvider({ children }) {
 
       if (currentUser) {
         const userRef = doc(db, "users", currentUser.uid);
-        const currentCompleted = userProfile?.completedBlocks || 0;
+        const todayStr = getLocalDateString(new Date());
+        const isToday = userProfile?.lastResetDate === todayStr;
+        const currentCompleted = isToday ? (userProfile?.completedBlocks || 0) : 0;
         setDoc(
           userRef,
           {
             completedBlocks: currentCompleted + 1,
+            lastResetDate: todayStr,
             lastSessionCompletedAt: serverTimestamp(),
           },
           { merge: true }
@@ -268,6 +354,10 @@ export function AppProvider({ children }) {
           ? "P2 Strategic"
           : "P3 Maintenance");
 
+      const todayStr = getLocalDateString(new Date());
+      const initialDate = taskData.date || (status === "backlog" ? "Backlog" : "Today");
+      const assignedDate = taskData.assignedDate || (status === "backlog" ? null : todayStr);
+
       const newTask = {
         title: taskData.title?.trim() || "Untitled Task",
         description: taskData.description?.trim() || "Added to workspace queue.",
@@ -281,7 +371,8 @@ export function AppProvider({ children }) {
         status,
         code: `FF-${Math.floor(1000 + Math.random() * 9000)}`,
         assignee: currentUser?.displayName?.slice(0, 2).toUpperCase() || "YOU",
-        date: "Today",
+        date: initialDate,
+        assignedDate,
         createdAt: serverTimestamp(),
         ...taskData,
       };
@@ -350,10 +441,18 @@ export function AppProvider({ children }) {
 
       const nextCompleted = !task.completed;
       const nextStatus = nextCompleted ? "completed" : "ready";
+      const todayStr = getLocalDateString(new Date());
 
       setTasks((prev) =>
         prev.map((t) =>
-          t.id === taskId ? { ...t, completed: nextCompleted, status: nextStatus } : t
+          t.id === taskId
+            ? {
+                ...t,
+                completed: nextCompleted,
+                status: nextStatus,
+                completedDate: nextCompleted ? todayStr : null,
+              }
+            : t
         )
       );
 
@@ -364,6 +463,7 @@ export function AppProvider({ children }) {
             completed: nextCompleted,
             status: nextStatus,
             completedAt: nextCompleted ? serverTimestamp() : null,
+            completedDate: nextCompleted ? todayStr : null,
             updatedAt: serverTimestamp(),
           });
         } catch (err) {
@@ -378,22 +478,33 @@ export function AppProvider({ children }) {
   const moveTaskStatus = useCallback(
     async (taskId, targetStatus) => {
       const isCompleted = targetStatus === "completed";
+      const todayStr = getLocalDateString(new Date());
+
+      const updates = {
+        status: targetStatus,
+        completed: isCompleted,
+        completedAt: isCompleted ? serverTimestamp() : null,
+        completedDate: isCompleted ? todayStr : null,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (targetStatus === "ready" || targetStatus === "in_progress") {
+        updates.assignedDate = todayStr;
+        updates.date = "Today";
+      } else if (targetStatus === "backlog") {
+        updates.date = "Backlog";
+      }
 
       setTasks((prev) =>
         prev.map((t) =>
-          t.id === taskId ? { ...t, status: targetStatus, completed: isCompleted } : t
+          t.id === taskId ? { ...t, ...updates } : t
         )
       );
 
       if (currentUser && taskId && !taskId.startsWith("local-") && !taskId.startsWith("board-")) {
         try {
           const ref = doc(db, "users", currentUser.uid, "tasks", taskId);
-          await updateDoc(ref, {
-            status: targetStatus,
-            completed: isCompleted,
-            completedAt: isCompleted ? serverTimestamp() : null,
-            updatedAt: serverTimestamp(),
-          });
+          await updateDoc(ref, updates);
         } catch (err) {
           console.error("Failed to move task status in Firestore:", err);
         }
@@ -402,31 +513,173 @@ export function AppProvider({ children }) {
     [currentUser]
   );
 
-  // 7. Habit Operations
+  // Toggle / ReDesignate Daily Highlight (Single or Multi-Task non-negotiable objective)
+  const toggleDailyHighlight = useCallback(
+    async (taskId) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      const nextHighlight = !task.isHighlight;
+      const todayStr = getLocalDateString(new Date());
+
+      const updates = {
+        isHighlight: nextHighlight,
+        highlightDesignatedAt: nextHighlight ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+      };
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+      );
+
+      // Compute updated array of highlight IDs
+      const currentHighlights = tasks
+        .filter((t) => (t.id === taskId ? nextHighlight : t.isHighlight))
+        .map((t) => t.id);
+
+      if (currentUser) {
+        try {
+          if (!taskId.startsWith("local-") && !taskId.startsWith("sample-")) {
+            const taskRef = doc(db, "users", currentUser.uid, "tasks", taskId);
+            await updateDoc(taskRef, updates);
+          }
+          const userRef = doc(db, "users", currentUser.uid);
+          await setDoc(
+            userRef,
+            {
+              dailyHighlightTaskIds: currentHighlights,
+              dailyFocusPlanLocked: currentHighlights.length > 0,
+              lastHighlightUpdate: todayStr,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        } catch (err) {
+          console.error("Failed to sync highlight to Firestore:", err);
+        }
+      }
+
+      setUserProfile((prev) => ({
+        ...prev,
+        dailyHighlightTaskIds: currentHighlights,
+        dailyFocusPlanLocked: currentHighlights.length > 0,
+      }));
+
+      if (nextHighlight) {
+        showToast(`⭐ Designated Primary Highlight: "${task.title}"`, "success");
+      } else {
+        showToast(`Removed "${task.title}" from Primary Highlights`);
+      }
+    },
+    [tasks, currentUser, showToast]
+  );
+
+  // Set multiple highlights and lock in the day's focus plan
+  const setDailyHighlightsAndLockPlan = useCallback(
+    async (taskIds = [], capacityHours = 5.0) => {
+      const todayStr = getLocalDateString(new Date());
+      const idSet = new Set(taskIds);
+
+      // Update local state immediately
+      setTasks((prev) =>
+        prev.map((t) => ({
+          ...t,
+          isHighlight: idSet.has(t.id),
+        }))
+      );
+
+      if (currentUser) {
+        try {
+          const batch = writeBatch(db);
+
+          tasks.forEach((t) => {
+            if (!t.id.startsWith("local-") && !t.id.startsWith("sample-")) {
+              const isHigh = idSet.has(t.id);
+              if (Boolean(t.isHighlight) !== isHigh) {
+                const taskRef = doc(db, "users", currentUser.uid, "tasks", t.id);
+                batch.update(taskRef, {
+                  isHighlight: isHigh,
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            }
+          });
+
+          const userRef = doc(db, "users", currentUser.uid);
+          batch.set(
+            userRef,
+            {
+              dailyHighlightTaskIds: taskIds,
+              dailyCapacityHours: capacityHours,
+              dailyFocusPlanLocked: true,
+              lastMorningPlanningDate: todayStr,
+              lastFocusPlanLockedAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          await batch.commit();
+        } catch (err) {
+          console.error("Failed to lock in daily highlights in Firestore:", err);
+        }
+      }
+
+      setUserProfile((prev) => ({
+        ...prev,
+        dailyHighlightTaskIds: taskIds,
+        dailyCapacityHours: capacityHours,
+        dailyFocusPlanLocked: true,
+        lastMorningPlanningDate: todayStr,
+      }));
+
+      showToast(
+        `⭐ Locked in ${taskIds.length} Primary Highlight${taskIds.length === 1 ? "" : "s"} & Daily Focus Plan!`,
+        "success"
+      );
+    },
+    [tasks, currentUser, showToast]
+  );
+
+  // 7. Habit Operations & Streaks Engine
   const toggleHabit = useCallback(
     async (habitId) => {
       const habit = habits.find((h) => h.id === habitId);
       if (!habit) return;
 
       const nextDone = !habit.done;
+      const todayStr = getTodayString();
+      const currentStreak = habit.streak || 0;
+      const nextStreak = nextDone ? currentStreak + 1 : Math.max(0, currentStreak - 1);
+      const nextBestStreak = Math.max(habit.bestStreak || 0, nextStreak);
+
+      const updates = {
+        done: nextDone,
+        streak: nextStreak,
+        bestStreak: nextBestStreak,
+        lastCompletedDate: nextDone ? todayStr : habit.lastCompletedDate || null,
+        completedAt: nextDone ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+      };
+
       setHabits((prev) =>
-        prev.map((h) => (h.id === habitId ? { ...h, done: nextDone } : h))
+        prev.map((h) => (h.id === habitId ? { ...h, ...updates } : h))
       );
 
       if (currentUser && typeof habitId === "string" && !habitId.startsWith("local-")) {
         try {
           const ref = doc(db, "users", currentUser.uid, "habits", habitId);
-          await updateDoc(ref, {
-            done: nextDone,
-            completedAt: nextDone ? serverTimestamp() : null,
-            updatedAt: serverTimestamp(),
-          });
+          await updateDoc(ref, updates);
         } catch (err) {
           console.error("Failed to toggle habit in Firestore:", err);
         }
       }
+
+      if (nextDone) {
+        showToast(`🔥 ${habit.title} checked! Streak: ${nextStreak}d`);
+      }
     },
-    [habits, currentUser]
+    [habits, currentUser, showToast]
   );
 
   const createHabit = useCallback(
@@ -435,6 +688,11 @@ export function AppProvider({ children }) {
         title: habitData.title?.trim() || "New Habit",
         duration: habitData.duration?.trim() || "15m",
         done: false,
+        cadence: habitData.cadence || "daily", // 'daily' | 'weekdays' | 'weekly' | 'custom'
+        targetDaysPerWeek: habitData.targetDaysPerWeek || 3,
+        streak: 0,
+        bestStreak: 0,
+        streakShields: habitData.streakShields ?? 2,
         order: habits.length,
         createdAt: serverTimestamp(),
       };
@@ -458,6 +716,39 @@ export function AppProvider({ children }) {
     [habits.length, currentUser, showToast]
   );
 
+  const updateHabit = useCallback(
+    async (habitId, updates) => {
+      setHabits((prev) =>
+        prev.map((h) => (h.id === habitId ? { ...h, ...updates } : h))
+      );
+
+      if (currentUser && typeof habitId === "string" && !habitId.startsWith("local-")) {
+        try {
+          const ref = doc(db, "users", currentUser.uid, "habits", habitId);
+          await updateDoc(ref, {
+            ...updates,
+            updatedAt: serverTimestamp(),
+          });
+          showToast("Habit ritual updated");
+        } catch (err) {
+          console.error("Failed to update habit in Firestore:", err);
+        }
+      }
+    },
+    [currentUser, showToast]
+  );
+
+  const refillHabitShield = useCallback(
+    async (habitId) => {
+      const habit = habits.find((h) => h.id === habitId);
+      if (!habit) return;
+      const newShields = (habit.streakShields ?? 2) + 1;
+      await updateHabit(habitId, { streakShields: newShields });
+      showToast(`🛡️ Streak Shield added to ${habit.title}! Total: ${newShields}`);
+    },
+    [habits, updateHabit, showToast]
+  );
+
   const deleteHabit = useCallback(
     async (habitId) => {
       setHabits((prev) => prev.filter((h) => h.id !== habitId));
@@ -472,6 +763,51 @@ export function AppProvider({ children }) {
       }
     },
     [currentUser, showToast]
+  );
+
+  // Smart Task Rollover Breakdown Assistant
+  const autoBreakdownTask = useCallback(
+    async (taskId) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      const baseTitle = (task.title || "Task").replace(/\[\d+m\]/g, "").trim();
+      const subtasks = [
+        {
+          id: `sub-${Date.now()}-1`,
+          title: `Research & Initial Scope: ${baseTitle}`,
+          duration: "15m",
+          completed: false,
+        },
+        {
+          id: `sub-${Date.now()}-2`,
+          title: `Sprint Core Execution: ${baseTitle}`,
+          duration: "15m",
+          completed: false,
+        },
+        {
+          id: `sub-${Date.now()}-3`,
+          title: `Review, Polish & Finalize: ${baseTitle}`,
+          duration: "15m",
+          completed: false,
+        },
+      ];
+
+      const updates = {
+        subtasks,
+        duration: "45m",
+        status: "ready",
+        date: "Today",
+        effort: "⚡ High Impact",
+        rolloverDiagnosticDismissed: true,
+        rolloverCount: 0,
+        updatedAt: serverTimestamp(),
+      };
+
+      await updateTask(taskId, updates);
+      showToast(`⚡ "${baseTitle}" broken into 3 x 15m atomic subtasks!`, "success");
+    },
+    [tasks, updateTask, showToast]
   );
 
   // 8. Update User Profile in Firestore & Firebase Auth
@@ -523,6 +859,11 @@ export function AppProvider({ children }) {
     () => tasks.filter((t) => t.category === "high-impact" || t.effort?.includes("Deep")).length,
     [tasks]
   );
+
+  const dailyHighlightTasks = useMemo(() => {
+    const highlightIds = new Set(userProfile?.dailyHighlightTaskIds || []);
+    return tasks.filter((t) => t.isHighlight || highlightIds.has(t.id));
+  }, [tasks, userProfile?.dailyHighlightTaskIds]);
 
   const habitsCount = useMemo(() => habits.length, [habits]);
   const completedHabitsCount = useMemo(() => habits.filter((h) => h.done).length, [habits]);
@@ -680,6 +1021,321 @@ export function AppProvider({ children }) {
     });
   }, [tasks, getTaskDate, parseDurationHours]);
 
+  // 10. Daily Rollover & Counter Resets
+  const rolloverInProgressRef = useRef(false);
+
+  const runDailyRolloverAndReset = useCallback(
+    async (force = false) => {
+      if (!currentUser || rolloverInProgressRef.current) return;
+      rolloverInProgressRef.current = true;
+
+      try {
+        const todayStr = getLocalDateString(new Date());
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+
+        const lastResetDate = userProfile?.lastResetDate;
+        const isNewDay = !lastResetDate || lastResetDate !== todayStr;
+        const rolloverEnabled = userProfile?.rolloverEnabled !== false;
+
+        // Tasks assigned for today or past days that are still unfinished in active columns
+        const tasksToRollover = rolloverEnabled
+          ? tasks.filter((t) => {
+              if (t.completed || t.status === "completed" || t.status === "backlog") return false;
+              if (!["ready", "in_progress", "review"].includes(t.status)) return false;
+
+              // If task was assigned to a previous day
+              const taskAssignedDate = t.assignedDate;
+              if (taskAssignedDate && typeof taskAssignedDate === "string") {
+                return taskAssignedDate < todayStr;
+              }
+              const taskDate = getTaskDate(t);
+              if (taskDate) {
+                return taskDate < startOfToday;
+              }
+              // If force === true, rollover any active task if requested
+              return force;
+            })
+          : [];
+
+        // Check if habits reset needed
+        const habitsToReset = isNewDay || force ? habits.filter((h) => h.done) : [];
+
+        // Check if blocks reset needed
+        const currentBlocks = userProfile?.completedBlocks || 0;
+        const shouldResetBlocks = (isNewDay && currentBlocks > 0) || force;
+
+        // If nothing needs rollover and day matches, exit early unless initializing lastResetDate
+        if (
+          tasksToRollover.length === 0 &&
+          habitsToReset.length === 0 &&
+          !shouldResetBlocks &&
+          lastResetDate === todayStr
+        ) {
+          if (force) {
+            showToast("Workspace is already up-to-date for today.", "info");
+          }
+          return;
+        }
+
+        const batch = writeBatch(db);
+
+        // 1. Move unfinished active tasks to Backlog with rolloverCount tracking
+        if (tasksToRollover.length > 0) {
+          tasksToRollover.forEach((t) => {
+            const nextCount = (t.rolloverCount || 0) + 1;
+            if (t.id && !t.id.startsWith("local-") && !t.id.startsWith("sample-")) {
+              const taskRef = doc(db, "users", currentUser.uid, "tasks", t.id);
+              batch.update(taskRef, {
+                status: "backlog",
+                date: "Backlog",
+                rolledOverAt: serverTimestamp(),
+                rolloverDate: todayStr,
+                rolloverCount: nextCount,
+                updatedAt: serverTimestamp(),
+              });
+            }
+          });
+
+          const rolloverMap = new Map(
+            tasksToRollover.map((t) => [t.id, (t.rolloverCount || 0) + 1])
+          );
+          setTasks((prev) =>
+            prev.map((t) =>
+              rolloverMap.has(t.id)
+                ? {
+                    ...t,
+                    status: "backlog",
+                    date: "Backlog",
+                    rolloverDate: todayStr,
+                    rolledOverAt: new Date(),
+                    rolloverCount: rolloverMap.get(t.id),
+                  }
+                : t
+            )
+          );
+        }
+
+        // 2. Reset habit checkboxes and evaluate streak shields
+        if (habits.length > 0 && (isNewDay || force)) {
+          const dayOfWeek = new Date().getDay(); // 0 Sun, 6 Sat
+          const isWeekendOrMon = dayOfWeek === 0 || dayOfWeek === 6 || dayOfWeek === 1;
+
+          habits.forEach((h) => {
+            const isWeekendProtected = h.cadence === "weekdays" && isWeekendOrMon;
+            let nextStreak = h.streak || 0;
+            let nextShields = h.streakShields ?? 2;
+            let shieldUsed = false;
+
+            if (!h.done) {
+              if (isWeekendProtected) {
+                // Preserved due to weekday cadence
+              } else if (nextShields > 0) {
+                // Streak shield consumed!
+                nextShields -= 1;
+                shieldUsed = true;
+              } else {
+                nextStreak = 0;
+              }
+            }
+
+            const habitUpdates = {
+              done: false,
+              streak: nextStreak,
+              streakShields: nextShields,
+              ...(shieldUsed ? { lastShieldUsedDate: todayStr } : {}),
+              updatedAt: serverTimestamp(),
+            };
+
+            if (h.id && !String(h.id).startsWith("local-")) {
+              const habitRef = doc(db, "users", currentUser.uid, "habits", h.id);
+              batch.update(habitRef, habitUpdates);
+            }
+          });
+
+          setHabits((prev) =>
+            prev.map((h) => {
+              const isWeekendProtected = h.cadence === "weekdays" && isWeekendOrMon;
+              let nextStreak = h.streak || 0;
+              let nextShields = h.streakShields ?? 2;
+              let shieldUsed = false;
+
+              if (!h.done) {
+                if (isWeekendProtected) {
+                  // Preserved
+                } else if (nextShields > 0) {
+                  nextShields -= 1;
+                  shieldUsed = true;
+                } else {
+                  nextStreak = 0;
+                }
+              }
+
+              return {
+                ...h,
+                done: false,
+                streak: nextStreak,
+                streakShields: nextShields,
+                ...(shieldUsed ? { lastShieldUsedDate: todayStr } : {}),
+              };
+            })
+          );
+        }
+
+        // 3. Reset daily completed blocks & update lastResetDate
+        const userRef = doc(db, "users", currentUser.uid);
+        const profileUpdates = {
+          lastResetDate: todayStr,
+          updatedAt: serverTimestamp(),
+        };
+        if (shouldResetBlocks || isNewDay) {
+          profileUpdates.completedBlocks = 0;
+        }
+
+        batch.set(userRef, profileUpdates, { merge: true });
+        setUserProfile((prev) => ({
+          ...prev,
+          ...profileUpdates,
+          completedBlocks: shouldResetBlocks || isNewDay ? 0 : prev?.completedBlocks || 0,
+        }));
+
+        await batch.commit();
+
+        if (tasksToRollover.length > 0) {
+          showToast(
+            `📅 Daily rollover: ${tasksToRollover.length} uncompleted ${
+              tasksToRollover.length === 1 ? "task" : "tasks"
+            } moved to Backlog. Daily blocks reset.`,
+            "info"
+          );
+        } else if (isNewDay || shouldResetBlocks) {
+          showToast("🌅 Good morning! Daily blocks and habits have been reset for today.", "info");
+        } else if (force) {
+          showToast("Daily rollover & reset completed successfully.", "success");
+        }
+      } catch (err) {
+        console.error("Daily rollover error:", err);
+        if (force) {
+          showToast("Failed to perform daily rollover", "error");
+        }
+      } finally {
+        rolloverInProgressRef.current = false;
+      }
+    },
+    [currentUser, userProfile, tasks, habits, getTaskDate, showToast]
+  );
+
+  // Automated trigger on app launch, 60s midnight check, and tab visibility/focus
+  useEffect(() => {
+    if (!currentUser || loadingTasks || loadingHabits) return;
+
+    // Run check on mount once auth & data are ready
+    runDailyRolloverAndReset(false);
+
+    // 60-second interval to catch midnight rollover seamlessly
+    const interval = setInterval(() => {
+      runDailyRolloverAndReset(false);
+    }, 60 * 1000);
+
+    // Window focus or tab visibility change (e.g. computer woke up or returned to app)
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        runDailyRolloverAndReset(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("focus", handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+    };
+  }, [currentUser, loadingTasks, loadingHabits, runDailyRolloverAndReset]);
+
+  // Today's completed tasks count
+  const todayCompletedTasksCount = useMemo(() => {
+    const todayStr = getLocalDateString(new Date());
+    return tasks.filter((t) => {
+      if (!t.completed) return false;
+      const taskDateStr =
+        t.completedDate ||
+        (t.completedAt ? getLocalDateString(getTaskDate(t)) : null) ||
+        t.assignedDate;
+      return taskDateStr === todayStr;
+    }).length;
+  }, [tasks, getTaskDate]);
+
+  // 11. Custom Labels & Priorities Management
+  const taskLabels = useMemo(() => {
+    if (Array.isArray(userProfile?.customLabels) && userProfile.customLabels.length > 0) {
+      return userProfile.customLabels;
+    }
+    return DEFAULT_TASK_LABELS;
+  }, [userProfile?.customLabels]);
+
+  const saveTaskLabels = useCallback(
+    async (newLabels) => {
+      if (currentUser) {
+        try {
+          const userRef = doc(db, "users", currentUser.uid);
+          await setDoc(userRef, { customLabels: newLabels, updatedAt: serverTimestamp() }, { merge: true });
+          setUserProfile((prev) => ({ ...prev, customLabels: newLabels }));
+          showToast("Task labels & priorities updated!");
+        } catch (err) {
+          console.error("Failed to save custom labels:", err);
+          showToast("Failed to save labels", "error");
+        }
+      } else {
+        setUserProfile((prev) => ({ ...prev, customLabels: newLabels }));
+        showToast("Task labels updated locally");
+      }
+    },
+    [currentUser, showToast]
+  );
+
+  const addCustomLabel = useCallback(
+    async (labelData) => {
+      const id = `lbl-${Date.now()}`;
+      const newLabel = {
+        id,
+        name: labelData.name?.trim() || "New Label",
+        type: labelData.type || "category",
+        color: labelData.color || "primary",
+      };
+      const updated = [...taskLabels, newLabel];
+      await saveTaskLabels(updated);
+      return newLabel;
+    },
+    [taskLabels, saveTaskLabels]
+  );
+
+  const updateCustomLabel = useCallback(
+    async (labelId, updates) => {
+      const updated = taskLabels.map((l) => (l.id === labelId ? { ...l, ...updates } : l));
+      await saveTaskLabels(updated);
+    },
+    [taskLabels, saveTaskLabels]
+  );
+
+  const deleteCustomLabel = useCallback(
+    async (labelId) => {
+      const updated = taskLabels.filter((l) => l.id !== labelId);
+      await saveTaskLabels(updated);
+    },
+    [taskLabels, saveTaskLabels]
+  );
+
+  const resetCustomLabels = useCallback(async () => {
+    await saveTaskLabels(DEFAULT_TASK_LABELS);
+  }, [saveTaskLabels]);
+
+  const getLabelStyle = useCallback(
+    (nameOrId) => getLabelStyleHelper(nameOrId, taskLabels),
+    [taskLabels]
+  );
+
   // Derived user display properties with graceful fallbacks
   const displayName = userProfile?.displayName || currentUser?.displayName || "Elena Vance";
   const displayTitle = userProfile?.displayTitle || "Staff Product Designer";
@@ -707,13 +1363,32 @@ export function AppProvider({ children }) {
     deleteTask,
     toggleTaskCompletion,
     moveTaskStatus,
+    toggleDailyHighlight,
+    setDailyHighlightsAndLockPlan,
+    dailyHighlightTasks,
+
+    // Custom Labels & Priorities
+    taskLabels,
+    saveTaskLabels,
+    addCustomLabel,
+    updateCustomLabel,
+    deleteCustomLabel,
+    resetCustomLabels,
+    getLabelStyle,
+    DEFAULT_TASK_LABELS,
+    LABEL_COLOR_OPTIONS,
 
     // Habits
     habits,
     loadingHabits,
     toggleHabit,
     createHabit,
+    updateHabit,
+    refillHabitShield,
     deleteHabit,
+
+    // Smart Rollover Breakdown
+    autoBreakdownTask,
 
     // Focus Session Timer
     timerSeconds,
@@ -725,6 +1400,11 @@ export function AppProvider({ children }) {
     setTimerSeconds,
     activeSessionTaskId,
     setActiveSessionTaskId,
+
+    // Daily Rollover & Resets
+    runDailyRolloverAndReset,
+    todayCompletedTasksCount,
+    getLocalDateString,
 
     // Live Metrics
     completedTasksCount,
