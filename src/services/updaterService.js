@@ -9,7 +9,7 @@ export const isTauriApp = () => {
 };
 
 export const getCurrentAppVersion = () => {
-  return "0.1.1";
+  return "0.1.2";
 };
 
 let cachedUpdate = null;

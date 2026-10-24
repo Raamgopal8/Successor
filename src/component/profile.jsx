@@ -2832,7 +2832,7 @@ export default function Profile() {
                       </div>
                     </div>
                     <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-tabular-mono text-label-sm font-bold">
-                      v0.1.1 (Stable)
+                      v0.1.2 (Stable)
                     </span>
                   </div>
 
