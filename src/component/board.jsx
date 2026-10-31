@@ -8,6 +8,7 @@ import ZenFocusDeck from "./ZenFocusDeck";
 import ShortcutsHelpModal from "./ShortcutsHelpModal";
 import RolloverDiagnosticBanner from "./RolloverDiagnosticBanner";
 import OverloadGuardMeter from "./OverloadGuardMeter";
+import AiGoalPlannerModal from "./AiGoalPlannerModal";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 const COLUMNS = [
@@ -23,11 +24,15 @@ export default function Board() {
   const {
     currentUser,
     authLoading,
+    userProfile,
     displayName,
     displayTitle,
     avatarUrl,
     logout,
     tasks,
+    deleteTask,
+    deleteCompletedTasks,
+    completedTasksCount,
     moveTaskStatus,
     createTask,
     updateTask,
@@ -44,6 +49,7 @@ export default function Board() {
     toggleDailyHighlight,
   } = useApp();
 
+  const [showAiPlanner, setShowAiPlanner] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
@@ -51,8 +57,56 @@ export default function Board() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [showLabelCustomizer, setShowLabelCustomizer] = useState(false);
+  const [hideCompletedTasks, setHideCompletedTasks] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("successor_board_hide_completed") === "true";
+    }
+    return false;
+  });
   const searchContainerRef = useRef(null);
   const searchInputRef = useRef(null);
+
+  const toggleHideCompleted = () => {
+    setHideCompletedTasks((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("successor_board_hide_completed", String(next));
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  const completedTasksList = tasks.filter((t) => t.status === "completed" || t.completed);
+
+  const handleDeleteCompletedTasks = async () => {
+    if (completedTasksList.length === 0) return;
+    const count = completedTasksList.length;
+    const confirmMessage = `Permanently delete ${count} completed task${
+      count > 1 ? "s" : ""
+    } from Cloud Firestore database? (Your total completed count of ${completedTasksCount} will be preserved).`;
+    if (window.confirm(confirmMessage)) {
+      await deleteCompletedTasks();
+      if (selectedTaskId && completedTasksList.some((t) => t.id === selectedTaskId)) {
+        setSelectedTaskId(null);
+        setShowInspector(false);
+      }
+    }
+  };
+
+  const handleDeleteSingleTask = async (e, task) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const isCompleted = task.completed || task.status === "completed";
+    const msg = isCompleted
+      ? `Permanently delete completed task "${task.title}" from database? (Your completed count of ${completedTasksCount} will be preserved)`
+      : `Permanently delete "${task.title}" from database?`;
+    if (window.confirm(msg)) {
+      await deleteTask(task.id);
+      if (selectedTaskId === task.id) {
+        setSelectedTaskId(null);
+        setShowInspector(false);
+      }
+    }
+  };
 
   // Global ⌘K or Ctrl+K shortcut to focus search input
   useEffect(() => {
@@ -128,6 +182,7 @@ export default function Board() {
       showShortcutsHelp ||
       showAddModal ||
       showLabelCustomizer ||
+      showAiPlanner ||
       isSearchOpen,
   });
 
@@ -243,6 +298,13 @@ export default function Board() {
       subtitle: "Workstation settings & chronotype",
       icon: "tune",
       action: () => navigate("/profile"),
+    },
+    {
+      id: "act-ai-planner",
+      title: "AI Goal Planner & Task Generator",
+      subtitle: "Long-term goals, weekly sprints, rescheduling & restructuring",
+      icon: "psychology_alt",
+      action: () => setShowAiPlanner(true),
     },
     {
       id: "act-new-kanban",
@@ -404,7 +466,7 @@ export default function Board() {
                 className="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors"
               >
                 <span className="material-symbols-outlined text-[20px]">monitoring</span>
-                <span className="font-body-md text-body-md">Analytics &amp; Velocity</span>
+                <span className="font-body-md text-body-md">Performance</span>
               </Link>
               <Link
                 to="/profile"
@@ -751,31 +813,7 @@ export default function Board() {
           </div>
 
           <div className="flex items-center gap-space-md">
-            {/* Quick Capture Pill (C) */}
-            <button
-              onClick={() => setShowQuickCapture(true)}
-              title="Quick Capture with Natural Language (Press C)"
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary text-label-sm font-semibold transition-all cursor-pointer border border-primary/20 shadow-xs"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[17px]">bolt</span>
-              <span>Quick Add</span>
-              <kbd className="px-1.5 py-0.2 rounded bg-primary/20 text-[10px] font-mono text-primary font-bold">C</kbd>
-            </button>
-
-            {/* Zen Deck Pill (F) */}
-            <button
-              onClick={() => setShowZenDeck(true)}
-              title="Full-screen Zen Focus Deck (Press F)"
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-label-sm font-medium transition-all cursor-pointer border border-outline-variant/20 shadow-xs"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[17px] text-tertiary">self_improvement</span>
-              <span>Zen Deck</span>
-              <kbd className="px-1.5 py-0.2 rounded bg-surface-container-highest text-[10px] font-mono text-outline">F</kbd>
-            </button>
-
-            {/* Live Shared Focus Session Pill */}
+           {/* Live Shared Focus Session Pill */}
             <div className="flex items-center gap-space-xs px-space-sm py-1.5 rounded-full bg-surface-container-high text-on-surface shadow-[0_1px_3px_0_rgba(15,23,42,0.04)]">
               <span className="material-symbols-outlined text-tertiary text-[18px]">timer</span>
               <span className="font-tabular-mono text-body-sm font-semibold">{formattedTimer}</span>
@@ -836,13 +874,34 @@ export default function Board() {
           <div className="flex flex-col w-full">
             {/* Top Workspace Context & Sub-navigation */}
             <div className="flex flex-col gap-space-md mb-space-lg">
-              {/* Breadcrumb & Sprint Title Row */}
+              {/* Breadcrumb Navigation */}
+              <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-outline font-label-sm">
+                <ol className="flex items-center gap-1.5 flex-wrap">
+                  <li className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[15px] text-outline">space_dashboard</span>
+                    <Link to="/dashboard" className="text-on-surface-variant hover:text-primary transition-colors font-medium">
+                      Workspace
+                    </Link>
+                  </li>
+                  <li aria-hidden="true" className="text-outline-variant select-none">/</li>
+                  <li className="text-on-surface-variant font-medium">
+                    Sprint Workflow
+                  </li>
+                  <li aria-hidden="true" className="text-outline-variant select-none">/</li>
+                  <li className="flex items-center gap-1 text-on-surface font-semibold" aria-current="page">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span>
+                    <span>Tasks Board</span>
+                  </li>
+                </ol>
+              </nav>
+
+              {/* Sprint Title Row */}
               <div className="flex flex-wrap items-center justify-between gap-space-md">
                 <div className="flex flex-col gap-1 min-w-0">
                   <div className="flex items-center gap-space-sm flex-wrap">
                     <span className="w-3.5 h-3.5 rounded-full bg-primary ring-4 ring-primary/10 flex-shrink-0" />
                     <h1 className="font-headline-md text-headline-md text-on-surface tracking-tight font-bold">
-                      Sprint 24: Core Platform Experience
+                      Tasks Board
                     </h1>
                     <span className="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant font-tabular-mono text-label-sm">
                       {tasks.length} Tasks
@@ -851,7 +910,16 @@ export default function Board() {
                 </div>
 
                 {/* Action Utilities */}
-                <div className="flex items-center gap-space-sm">
+                <div className="flex items-center gap-space-sm flex-wrap">
+                  <button
+                    onClick={() => setShowAiPlanner(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md shadow-md transition-all cursor-pointer"
+                    type="button"
+                    title="Open AI Goal Planner & Daily Task Generator"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">psychology_alt</span>
+                    <span>AI Goal Planner</span>
+                  </button>
                   <button
                     onClick={() => setShowQuickCapture(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-body-sm font-medium shadow-sm transition-all cursor-pointer border border-outline-variant/20"
@@ -936,6 +1004,40 @@ export default function Board() {
                   >
                     <span>Priority: P1 &amp; P2</span>
                   </button>
+
+                  {/* Hide / Show Completed Tasks Filter Toggle */}
+                  <button
+                    onClick={toggleHideCompleted}
+                    type="button"
+                    className={`flex items-center gap-1 pl-2.5 pr-2 py-1 rounded-full text-label-sm cursor-pointer transition-all ${
+                      hideCompletedTasks
+                        ? "bg-secondary-fixed text-on-secondary-fixed ring-1 ring-secondary font-semibold"
+                        : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"
+                    }`}
+                    title={hideCompletedTasks ? "Completed tasks are currently hidden. Click to reveal." : "Click to hide completed tasks from the board."}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">
+                      {hideCompletedTasks ? "visibility_off" : "visibility"}
+                    </span>
+                    <span>
+                      {hideCompletedTasks
+                        ? `Hidden (${completedTasksList.length})`
+                        : `Hide Completed (${completedTasksList.length})`}
+                    </span>
+                  </button>
+
+                  {completedTasksList.length > 0 && (
+                    <button
+                      onClick={handleDeleteCompletedTasks}
+                      type="button"
+                      className="flex items-center gap-1 pl-2.5 pr-2 py-1 rounded-full text-label-sm cursor-pointer transition-all bg-error/10 hover:bg-error/20 text-error border border-error/20 font-semibold"
+                      title="Permanently delete all completed tasks from database (completed count will be preserved)"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">delete_sweep</span>
+                      <span>Delete Completed</span>
+                    </button>
+                  )}
+
                   {activeFilter !== "all" && (
                     <button
                       onClick={() => setActiveFilter("all")}
@@ -972,6 +1074,44 @@ export default function Board() {
               </div>
             )}
 
+            {/* AI Goal Planner & Daily Task Generator Banner */}
+            <div className="mb-space-md p-space-md rounded-2xl bg-gradient-to-r from-primary/10 via-surface-container-high to-secondary/10 border border-primary/20 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-primary text-on-primary flex items-center justify-center shadow-xs">
+                  <span className="material-symbols-outlined text-[22px]">psychology_alt</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-headline-sm text-body-md font-bold text-on-surface">
+                      AI Goal Planner &amp; Daily Task Generator
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/15 text-primary">
+                      {(() => {
+                        const active = Array.isArray(userProfile?.customAiConfigs)
+                          ? userProfile.customAiConfigs.find((c) => c.isActive)
+                          : null;
+                        return (active?.name || active?.model || (userProfile?.aiProvider ? userProfile.aiProvider.toUpperCase() : "AI ENABLED"));
+                      })()}
+                    </span>
+                  </div>
+                  <p className="font-body-sm text-[12px] text-outline mt-0.5">
+                    Decompose long-term goals, synthesize 7-day weekly sprints, reschedule missed rollovers, or restructure complex milestones.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowAiPlanner(true)}
+                  className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-label-md font-semibold text-[13px] shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[17px]">auto_awesome</span>
+                  <span>Launch AI Planner</span>
+                </button>
+              </div>
+            </div>
+
             {/* Daily Workload Capacity Warning: Overload Guard */}
             <OverloadGuardMeter className="mb-space-md" />
 
@@ -1000,116 +1140,194 @@ export default function Board() {
                           </h2>
                           <span
                             className={`px-2 py-0.5 rounded-full font-tabular-mono text-label-sm font-semibold ${col.countBg}`}
+                            title={
+                              col.id === "completed"
+                                ? `${colTasks.length} active in column • ${completedTasksCount} total completed count (preserved)`
+                                : `${colTasks.length} tasks`
+                            }
                           >
                             {colTasks.length}
                           </span>
                         </div>
-                        <button
-                          onClick={() => {
-                            setNewTaskStatus(col.id);
-                            setShowAddModal(true);
-                          }}
-                          className="w-6 h-6 rounded flex items-center justify-center text-outline hover:text-on-surface hover:bg-surface-container cursor-pointer"
-                          type="button"
-                          title={`Add task to ${col.title}`}
-                        >
-                          <span className="material-symbols-outlined text-[16px]">add</span>
-                        </button>
+
+                        <div className="flex items-center gap-1">
+                          {col.id === "completed" && (
+                            <>
+                              {/* Hide / Show Completed Tasks Toggle */}
+                              <button
+                                type="button"
+                                onClick={toggleHideCompleted}
+                                className={`w-6 h-6 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                                  hideCompletedTasks
+                                    ? "text-secondary bg-secondary/15"
+                                    : "text-outline hover:text-on-surface hover:bg-surface-container"
+                                }`}
+                                title={hideCompletedTasks ? "Completed tasks are currently hidden. Click to show." : "Click to hide completed tasks from view."}
+                              >
+                                <span className="material-symbols-outlined text-[16px]">
+                                  {hideCompletedTasks ? "visibility_off" : "visibility"}
+                                </span>
+                              </button>
+
+                              {/* Delete All Completed Tasks from Database */}
+                              {colTasks.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={handleDeleteCompletedTasks}
+                                  className="w-6 h-6 rounded flex items-center justify-center text-outline hover:text-error hover:bg-error/10 transition-colors cursor-pointer"
+                                  title="Permanently delete all completed tasks from database (completed count will not be deleted)"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+
+                          <button
+                            onClick={() => {
+                              setNewTaskStatus(col.id);
+                              setShowAddModal(true);
+                            }}
+                            className="w-6 h-6 rounded flex items-center justify-center text-outline hover:text-on-surface hover:bg-surface-container cursor-pointer"
+                            type="button"
+                            title={`Add task to ${col.title}`}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">add</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Card Stream */}
                       <div className="flex flex-col gap-space-sm flex-1">
-                        {colTasks.map((task) => {
-                          const isSelected = selectedTask?.id === task.id;
-                          return (
-                            <div
-                              key={task.id}
-                              draggable
-                              onDragStart={(e) => handleDragStart(e, task.id)}
-                              onClick={() => {
-                                setSelectedTaskId(task.id);
-                                setShowInspector(true);
-                              }}
-                              className={`group bg-surface-container-lowest p-space-sm rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer relative overflow-hidden border ${
-                                isSelected
-                                  ? "ring-2 ring-primary border-primary shadow-md"
-                                  : "border-outline-variant/15"
-                              }`}
-                            >
-                              {isSelected && <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />}
-
-                              <div className="flex items-start justify-between gap-1 mb-2 mt-0.5">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="material-symbols-outlined text-outline/40 group-hover:text-outline text-[16px] cursor-grab">
-                                    drag_indicator
-                                  </span>
-                                  {task.category && (() => {
-                                    const cStyle = getLabelStyle(task.category);
-                                    return (
-                                      <span className={`px-2 py-0.5 rounded-md font-label-sm text-[10px] uppercase tracking-wider font-semibold border ${cStyle.bg} ${cStyle.border}`}>
-                                        {task.category}
-                                      </span>
-                                    );
-                                  })()}
-                                  {task.priority && (() => {
-                                    const pStyle = getLabelStyle(task.priority);
-                                    return (
-                                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label-sm text-[10px] font-bold border ${pStyle.bg} ${pStyle.border}`}>
-                                        <span className={`w-1 h-1 rounded-full ${pStyle.dot}`} />
-                                        {task.priority}
-                                      </span>
-                                    );
-                                  })()}
-                                  {task.isHighlight && (
-                                    <span
-                                      title="Today's Primary Highlight (Anchor Task)"
-                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-label-sm text-[10px] font-bold bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-400"
-                                    >
-                                      <span className="material-symbols-outlined text-[11px] fill-1 text-amber-500">star</span>
-                                      Highlight
-                                    </span>
-                                  )}
-                                  {(task.rolledOverAt || task.rolloverDate) && (
-                                    <span
-                                      title="Task was not completed within the assigned day and rolled over to backlog"
-                                      className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 font-label-sm text-[10px] uppercase tracking-wider font-semibold flex items-center gap-0.5"
-                                    >
-                                      <span className="material-symbols-outlined text-[11px]">history</span>
-                                      Rolled Over
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleDailyHighlight(task.id);
-                                    }}
-                                    className={`p-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer ${
-                                      task.isHighlight ? "text-amber-500" : "text-outline/40 hover:text-amber-500"
-                                    }`}
-                                    title={task.isHighlight ? "Remove Primary Highlight" : "Designate as Today's Primary Highlight"}
-                                  >
-                                    <span className={`material-symbols-outlined text-[15px] ${task.isHighlight ? "fill-1" : ""}`}>
-                                      {task.isHighlight ? "star" : "star_outline"}
-                                    </span>
-                                  </button>
-                                  <span className="px-1.5 py-0.5 rounded text-[11px] font-tabular-mono text-outline font-medium flex-shrink-0">
-                                    {task.effort || "⚡ Med"}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <h3
-                                className={`font-body-md text-body-md font-semibold mb-1.5 leading-snug ${
-                                  task.status === "completed"
-                                    ? "line-through text-outline"
-                                    : "text-on-surface"
+                        {col.id === "completed" && hideCompletedTasks ? (
+                          <div className="p-4 rounded-xl bg-surface-container-low/80 border border-dashed border-outline-variant/30 text-center flex flex-col items-center justify-center gap-2 my-auto">
+                            <span className="material-symbols-outlined text-2xl text-secondary">visibility_off</span>
+                            <div>
+                              <p className="font-semibold text-xs text-on-surface">Completed Tasks Hidden</p>
+                              <p className="text-[11px] text-outline mt-0.5">
+                                {colTasks.length} task{colTasks.length === 1 ? "" : "s"} hidden ({completedTasksCount} total completed count preserved)
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <button
+                                type="button"
+                                onClick={toggleHideCompleted}
+                                className="px-2.5 py-1 rounded-lg bg-surface-container text-on-surface hover:bg-surface-container-high text-xs font-semibold cursor-pointer transition-colors"
+                              >
+                                Show Tasks
+                              </button>
+                              {colTasks.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={handleDeleteCompletedTasks}
+                                  className="px-2.5 py-1 rounded-lg bg-error/10 text-error hover:bg-error/20 text-xs font-semibold cursor-pointer transition-colors"
+                                  title="Delete completed tasks from database"
+                                >
+                                  Delete All
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          colTasks.map((task) => {
+                            const isSelected = selectedTask?.id === task.id;
+                            return (
+                              <div
+                                key={task.id}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, task.id)}
+                                onClick={() => {
+                                  setSelectedTaskId(task.id);
+                                  setShowInspector(true);
+                                }}
+                                className={`group bg-surface-container-lowest p-space-sm rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer relative overflow-hidden border ${
+                                  isSelected
+                                    ? "ring-2 ring-primary border-primary shadow-md"
+                                    : "border-outline-variant/15"
                                 }`}
                               >
-                                {task.title}
-                              </h3>
+                                {isSelected && <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />}
+
+                                <div className="flex items-start justify-between gap-1 mb-2 mt-0.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="material-symbols-outlined text-outline/40 group-hover:text-outline text-[16px] cursor-grab">
+                                      drag_indicator
+                                    </span>
+                                    {task.category && (() => {
+                                      const cStyle = getLabelStyle(task.category);
+                                      return (
+                                        <span className={`px-2 py-0.5 rounded-md font-label-sm text-[10px] uppercase tracking-wider font-semibold border ${cStyle.bg} ${cStyle.border}`}>
+                                          {task.category}
+                                        </span>
+                                      );
+                                    })()}
+                                    {task.priority && (() => {
+                                      const pStyle = getLabelStyle(task.priority);
+                                      return (
+                                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label-sm text-[10px] font-bold border ${pStyle.bg} ${pStyle.border}`}>
+                                          <span className={`w-1 h-1 rounded-full ${pStyle.dot}`} />
+                                          {task.priority}
+                                        </span>
+                                      );
+                                    })()}
+                                    {task.isHighlight && (
+                                      <span
+                                        title="Today's Primary Highlight (Anchor Task)"
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-label-sm text-[10px] font-bold bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-400"
+                                      >
+                                        <span className="material-symbols-outlined text-[11px] fill-1 text-amber-500">star</span>
+                                        Highlight
+                                      </span>
+                                    )}
+                                    {(task.rolledOverAt || task.rolloverDate) && (
+                                      <span
+                                        title="Task was not completed within the assigned day and rolled over to backlog"
+                                        className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 font-label-sm text-[10px] uppercase tracking-wider font-semibold flex items-center gap-0.5"
+                                      >
+                                        <span className="material-symbols-outlined text-[11px]">history</span>
+                                        Rolled Over
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleDailyHighlight(task.id);
+                                      }}
+                                      className={`p-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer ${
+                                        task.isHighlight ? "text-amber-500" : "text-outline/40 hover:text-amber-500"
+                                      }`}
+                                      title={task.isHighlight ? "Remove Primary Highlight" : "Designate as Today's Primary Highlight"}
+                                    >
+                                      <span className={`material-symbols-outlined text-[15px] ${task.isHighlight ? "fill-1" : ""}`}>
+                                        {task.isHighlight ? "star" : "star_outline"}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleDeleteSingleTask(e, task)}
+                                      className="p-1 rounded text-outline/40 hover:text-error hover:bg-error/10 transition-colors cursor-pointer"
+                                      title={task.completed ? "Delete completed task (completed count preserved)" : "Delete task from database"}
+                                    >
+                                      <span className="material-symbols-outlined text-[15px]">delete</span>
+                                    </button>
+                                    <span className="px-1.5 py-0.5 rounded text-[11px] font-tabular-mono text-outline font-medium flex-shrink-0">
+                                      {task.effort || "⚡ Med"}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <h3
+                                  className={`font-body-md text-body-md font-semibold mb-1.5 leading-snug ${
+                                    task.status === "completed"
+                                      ? "line-through text-outline"
+                                      : "text-on-surface"
+                                  }`}
+                                >
+                                  {task.title}
+                                </h3>
 
                               {task.description && (
                                 <p className="font-body-sm text-body-sm text-on-surface-variant line-clamp-2 mb-3">
@@ -1136,7 +1354,7 @@ export default function Board() {
                               </div>
                             </div>
                           );
-                        })}
+                        }))}
 
                         {colTasks.length === 0 && (
                           <div className="p-4 rounded-xl border border-dashed border-outline-variant/30 text-center text-outline text-label-sm">
@@ -1343,6 +1561,32 @@ export default function Board() {
                       <span>Real-time cloud synchronized with Today's Focus</span>
                     </div>
                   </div>
+
+                  {/* Delete Task from Database */}
+                  <div className="pt-space-md mt-space-md border-t border-outline-variant/15">
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteSingleTask(e, selectedTask)}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-error/10 hover:bg-error/20 text-error font-label-md font-semibold text-body-sm transition-all border border-error/20 cursor-pointer shadow-xs"
+                      title={
+                        selectedTask.completed || selectedTask.status === "completed"
+                          ? "Permanently delete this completed task (completed count is preserved)"
+                          : "Permanently delete this task"
+                      }
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                      <span>
+                        {selectedTask.completed || selectedTask.status === "completed"
+                          ? "Delete Completed Task (Preserve Count)"
+                          : "Delete Task from Database"}
+                      </span>
+                    </button>
+                    {(selectedTask.completed || selectedTask.status === "completed") && (
+                      <p className="text-[11px] text-outline text-center mt-1.5 font-medium">
+                        Deleting completed tasks keeps your completed tasks count intact.
+                      </p>
+                    )}
+                  </div>
                 </aside>
               )}
             </div>
@@ -1495,6 +1739,12 @@ export default function Board() {
       <ShortcutsHelpModal
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
+      />
+
+      {/* AI GOAL PLANNER & DAILY TASK GENERATOR MODAL */}
+      <AiGoalPlannerModal
+        isOpen={showAiPlanner}
+        onClose={() => setShowAiPlanner(false)}
       />
     </div>
   );

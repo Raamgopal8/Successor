@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 
 const CADENCE_OPTIONS = [
@@ -9,12 +9,21 @@ const CADENCE_OPTIONS = [
 ];
 
 export default function HabitManagerModal({ isOpen, onClose }) {
-  const { habits, createHabit, updateHabit, deleteHabit, refillHabitShield } = useApp();
+  const { habits = [], createHabit, updateHabit, deleteHabit, refillHabitShield, toggleHabit } = useApp();
 
   const [newTitle, setNewTitle] = useState("");
   const [newDuration, setNewDuration] = useState("15m");
   const [newCadence, setNewCadence] = useState("daily");
   const [editingHabitId, setEditingHabitId] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -33,7 +42,10 @@ export default function HabitManagerModal({ isOpen, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200"
+    >
       <div
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-2xl bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh]"
@@ -166,13 +178,16 @@ export default function HabitManagerModal({ isOpen, onClose }) {
                       className="p-3.5 rounded-xl bg-surface-container-low hover:bg-surface-container transition-all border border-outline-variant/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            h.done ? "bg-secondary text-on-secondary" : "border-2 border-outline-variant text-transparent"
+                        <button
+                          type="button"
+                          onClick={() => toggleHabit(h.id)}
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer transition-colors ${
+                            h.done ? "bg-secondary text-on-secondary" : "border-2 border-outline-variant hover:border-secondary text-transparent"
                           }`}
+                          title={h.done ? "Mark as incomplete" : "Mark as completed"}
                         >
                           <span className="material-symbols-outlined text-[18px]">check</span>
-                        </span>
+                        </button>
 
                         <div className="min-w-0">
                           <p className={`font-body-md text-body-md font-semibold truncate ${h.done ? "line-through text-outline" : "text-on-surface"}`}>

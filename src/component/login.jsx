@@ -4,6 +4,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInAnonymously,
   sendPasswordResetEmail,
   setPersistence,
   browserLocalPersistence,
@@ -67,7 +68,7 @@ const Login = () => {
     }
   };
 
-  // Auto-restore workstation session for quick login when enabled
+  // Auto-restore workstation session for quick/credentialless login when active
   useEffect(() => {
     const savedRemember = localStorage.getItem("successor_remember_me");
     if (savedRemember !== null) {
@@ -82,19 +83,22 @@ const Login = () => {
     const token = localStorage.getItem("successor_workstation_token");
     const expiry = localStorage.getItem("successor_token_expiry");
     const isTokenValid = token && (!expiry || Date.now() < Number(expiry));
+    const isGuest = localStorage.getItem("successor_guest_session") === "true";
 
-    if (savedRemember === "true" && isTokenValid) {
+    // If a persistent session or token exists, transition seamlessly through the loading screen
+    if ((savedRemember === "true" && isTokenValid) || isGuest) {
       setQuickLoggingIn(true);
       const unsub = onAuthStateChanged(auth, async (user) => {
-        if (user) {
+        if (user || isGuest) {
           try {
-            // Refresh workstation token & navigate
-            const freshToken = await user.getIdToken();
-            localStorage.setItem("successor_workstation_token", freshToken);
-            navigate("/dashboard");
+            if (user) {
+              const freshToken = await user.getIdToken();
+              localStorage.setItem("successor_workstation_token", freshToken);
+            }
+            navigate("/loading");
           } catch (err) {
-            console.warn("Workstation token refresh failed:", err);
-            setQuickLoggingIn(false);
+            console.warn("Workstation session restore warning:", err);
+            navigate("/loading");
           }
         } else {
           setQuickLoggingIn(false);
@@ -117,14 +121,15 @@ const Login = () => {
     setResetError("");
     setResetSuccess(false);
 
-    if (!resetEmail.trim()) {
+    const cleanEmail = resetEmail.trim().toLowerCase();
+    if (!cleanEmail) {
       setResetError("Please enter your registered email address.");
       return;
     }
 
     setResetLoading(true);
     try {
-      await sendPasswordResetEmail(auth, resetEmail.trim());
+      await sendPasswordResetEmail(auth, cleanEmail);
       setResetSuccess(true);
     } catch (err) {
       console.error("Password reset error:", err);
@@ -176,7 +181,7 @@ const Login = () => {
       }
 
       await saveWorkstationToken(loggedInUser, rememberMe);
-      navigate("/dashboard");
+      navigate("/loading");
     } catch (err) {
       console.error(err);
       const friendlyMessage =
@@ -212,7 +217,7 @@ const Login = () => {
         { merge: true }
       );
       await saveWorkstationToken(user, rememberMe);
-      navigate("/dashboard");
+      navigate("/loading");
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to sign in with Google.");
@@ -240,7 +245,7 @@ const Login = () => {
         { merge: true }
       );
       await saveWorkstationToken(user, rememberMe);
-      navigate("/dashboard");
+      navigate("/loading");
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to sign in with GitHub.");
@@ -248,7 +253,7 @@ const Login = () => {
       setLoading(false);
     }
   };
-
+  
   return (
     <div className="bg-surface font-body-md text-body-md text-on-surface antialiased flex items-center justify-center min-h-screen selection:bg-primary/20">
       <main className="w-full flex items-center justify-center p-space-md">
@@ -280,7 +285,7 @@ const Login = () => {
                         Successor
                       </span>
                       <span className="bg-[#edeefc] text-[#5558e6] text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        V1.2
+                        V1.6
                       </span>
                     </div>
                     <p className="text-[13px] text-[#555a6d] font-normal tracking-normal -mt-0.5">
@@ -388,13 +393,13 @@ const Login = () => {
                   </div>
                 )}
 
-                {/* Social Quick Logins */}
-                <div className="grid grid-cols-1 gap-space-sm pt-space-xs">
+                {/* Social Quick Logins & Credentialless */}
+                <div className="grid grid-cols-1 sm:grid-cols-1 gap-space-sm pt-space-xs">
                   {/* Google Button */}
                   <button
                     onClick={handleGoogleSignIn}
                     disabled={loading}
-                    className="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-label-md text-label-md transition-all group disabled:opacity-50 cursor-pointer"
+                    className="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-label-md text-label-md transition-all group disabled:opacity-50 cursor-pointer border border-outline-variant/20 shadow-xs"
                     type="button"
                   >
                     <svg className="w-4 h-4 group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
@@ -613,14 +618,25 @@ const Login = () => {
 
             {/* Success message banner */}
             {resetSuccess && (
-              <div className="p-3.5 rounded-xl bg-secondary-container/30 border border-secondary/30 text-on-surface text-body-sm space-y-1">
+              <div className="p-3.5 rounded-xl bg-secondary-container/30 border border-secondary/30 text-on-surface text-body-sm space-y-2">
                 <div className="flex items-center gap-2 text-secondary font-semibold">
                   <span className="material-symbols-outlined text-[18px]">check_circle</span>
                   <span>Reset Link Dispatched</span>
                 </div>
-                <p className="text-[13px] text-on-surface-variant pl-6">
-                  A password reset email has been sent to <strong className="text-on-surface">{resetEmail}</strong>. Please check your inbox and spam folder.
+                <p className="text-[13px] text-on-surface-variant leading-relaxed">
+                  A password reset email has been sent to <strong className="text-on-surface">{resetEmail}</strong> from <span className="font-mono text-xs text-primary bg-primary/10 px-1.5 py-0.5 rounded">noreply@fledgeportal.firebaseapp.com</span>.
                 </p>
+                <div className="p-2.5 rounded-lg bg-surface-container-high/60 border border-outline-variant/20 text-xs text-outline space-y-1 mt-1">
+                  <div className="flex items-center gap-1.5 font-medium text-on-surface">
+                    <span className="material-symbols-outlined text-[15px] text-secondary">mark_email_unread</span>
+                    <span>Don't see the email?</span>
+                  </div>
+                  <ul className="list-disc pl-4 space-y-0.5 text-on-surface-variant text-[11.5px]">
+                    <li>Check your <strong>Spam</strong>, <strong>Junk</strong>, or <strong>Promotions</strong> folder (automated Firebase emails often get filtered there).</li>
+                    <li>Ensure this email exactly matches your registered account (Firebase suppresses emails to non-existent accounts for privacy).</li>
+                    <li>If you created your account via Google or GitHub sign-in, please sign in directly using those buttons.</li>
+                  </ul>
+                </div>
               </div>
             )}
 

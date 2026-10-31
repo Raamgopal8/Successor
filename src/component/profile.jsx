@@ -4,6 +4,8 @@ import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase";
 import image from "../assets/logo.png";
 import { useApp } from "../context/AppContext";
+import { testAiKeyConnectivity } from "../services/aiGoalService";
+import { getAppDeviceUuid } from "../utils/deviceUuid";
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -69,6 +71,25 @@ export default function Profile() {
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [digestFrequency, setDigestFrequency] = useState("daily"); // 'daily' | 'weekly' | 'off'
 
+  // Custom User-Defined AI Models & Multi-Key Management
+  const [customAiConfigs, setCustomAiConfigs] = useState([
+    {
+      id: "custom-ai-1",
+      name: "Google Gemini REST",
+      endpoint: "https://generativelanguage.googleapis.com",
+      apiKey: "",
+      model: "gemini-3.8-flash",
+      providerType: "gemini",
+      isActive: true,
+    },
+  ]);
+  const [showKeyMap, setShowKeyMap] = useState({}); // { [configId]: boolean }
+  const [testingConfigId, setTestingConfigId] = useState(null);
+  const [configStatuses, setConfigStatuses] = useState({}); // { [configId]: { type, message, latencyMs } }
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiProvider, setAiProvider] = useState("gemini");
+  const [aiModel, setAiModel] = useState("gemini-3.8-flash");
+
   // Theme & Appearance States
   const [theme, setTheme] = useState("dark"); // 'dark' | 'light' | 'system'
   const [accentColor, setAccentColor] = useState("indigo"); // 'indigo' | 'emerald' | 'amber' | 'cyan'
@@ -96,6 +117,17 @@ export default function Profile() {
   // Data & Export States
   const [isExporting, setIsExporting] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(() => new Date().toLocaleTimeString());
+  const [deviceUuidInfo, setDeviceUuidInfo] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    getAppDeviceUuid().then((info) => {
+      if (isMounted) setDeviceUuidInfo(info);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Notification Toast & Save Status
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -183,6 +215,78 @@ export default function Profile() {
       if (userProfile.theme !== undefined) setTheme(userProfile.theme);
       if (userProfile.accentColor !== undefined) setAccentColor(userProfile.accentColor);
       if (userProfile.density !== undefined) setDensity(userProfile.density);
+      if (userProfile.aiApiKey !== undefined) setAiApiKey(userProfile.aiApiKey);
+      if (userProfile.aiProvider !== undefined) setAiProvider(userProfile.aiProvider);
+      if (userProfile.aiModel !== undefined) setAiModel(userProfile.aiModel);
+
+      if (Array.isArray(userProfile.customAiConfigs) && userProfile.customAiConfigs.length > 0) {
+        const sanitizedConfigs = userProfile.customAiConfigs
+          .filter((c) => c && c.providerType !== "firebase")
+          .map((c) => ({
+            ...c,
+            endpoint: c.endpoint === "Firebase App SDK" ? "https://generativelanguage.googleapis.com" : (c.endpoint || "https://generativelanguage.googleapis.com"),
+            providerType: c.providerType || "gemini",
+          }));
+
+        if (sanitizedConfigs.length > 0) {
+          setCustomAiConfigs(sanitizedConfigs);
+          const active = sanitizedConfigs.find((c) => c.isActive) || sanitizedConfigs[0];
+          if (active) {
+            setAiProvider(active.providerType || "gemini");
+            setAiModel(active.model || "gemini-3.8-flash");
+            setAiApiKey(active.apiKey || "");
+          }
+        } else {
+          setCustomAiConfigs([
+            {
+              id: "custom-ai-1",
+              name: "Google Gemini REST",
+              endpoint: "https://generativelanguage.googleapis.com",
+              apiKey: userProfile.aiApiKey || userProfile.aiApiKeys?.gemini || "",
+              model: userProfile.aiModel || "gemini-3.8-flash",
+              providerType: "gemini",
+              isActive: true,
+            },
+          ]);
+          setAiProvider("gemini");
+          setAiModel(userProfile.aiModel || "gemini-3.8-flash");
+          setAiApiKey(userProfile.aiApiKey || userProfile.aiApiKeys?.gemini || "");
+        }
+      } else if (userProfile.aiApiKey || userProfile.aiApiKeys) {
+        const initialKey = userProfile.aiApiKey || userProfile.aiApiKeys?.gemini || "";
+        const initialModel = userProfile.aiModel || "gemini-3.8-flash";
+        const initialProvider = userProfile.aiProvider === "firebase" ? "gemini" : (userProfile.aiProvider || "gemini");
+        const initialEndpoint = userProfile.aiEndpoint || (initialProvider === "gemini" ? "https://generativelanguage.googleapis.com" : "https://api.openai.com/v1");
+
+        setCustomAiConfigs([
+          {
+            id: "custom-ai-1",
+            name: "Custom AI Provider",
+            endpoint: initialEndpoint,
+            apiKey: initialKey,
+            model: initialModel,
+            providerType: initialProvider,
+            isActive: true,
+          },
+        ]);
+        setAiProvider(initialProvider);
+        setAiModel(initialModel);
+        setAiApiKey(initialKey);
+      } else {
+        setCustomAiConfigs([
+          {
+            id: "custom-ai-1",
+            name: "Google Gemini REST",
+            endpoint: "https://generativelanguage.googleapis.com",
+            apiKey: "",
+            model: "gemini-3.8-flash",
+            providerType: "gemini",
+            isActive: true,
+          },
+        ]);
+        setAiProvider("gemini");
+        setAiModel("gemini-3.8-flash");
+      }
       if (typeof userProfile.reduceMotion === "boolean") setReduceMotion(userProfile.reduceMotion);
       if (typeof userProfile.monospaceTimers === "boolean") setMonospaceTimers(userProfile.monospaceTimers);
       setLastSyncTime(new Date().toLocaleTimeString());
@@ -216,6 +320,19 @@ export default function Profile() {
     if (!currentUser) return;
     setSaving(true);
     try {
+      const activeConfig = customAiConfigs.find((c) => c.isActive) || customAiConfigs[0];
+      const activeKey = activeConfig?.apiKey || aiApiKey || "";
+      const activeModel = activeConfig?.model || aiModel || "";
+      const activeProvider = activeConfig?.providerType || aiProvider || "gemini";
+      const activeEndpoint = activeConfig?.endpoint || "";
+
+      const keysMap = {};
+      customAiConfigs.forEach((c) => {
+        if (c.apiKey) {
+          keysMap[c.providerType || c.id] = c.apiKey;
+        }
+      });
+
       await saveUserProfile({
         displayName,
         displayTitle,
@@ -236,6 +353,12 @@ export default function Profile() {
         webhookUrl,
         soundAlerts,
         digestFrequency,
+        customAiConfigs,
+        aiApiKey: activeKey,
+        aiApiKeys: keysMap,
+        aiProvider: activeProvider,
+        aiModel: activeModel,
+        aiEndpoint: activeEndpoint,
         theme,
         accentColor,
         density,
@@ -434,7 +557,7 @@ export default function Profile() {
 
   const handleForceResync = () => {
     setLastSyncTime(new Date().toLocaleTimeString());
-    if (showToast) showToast("Cloud Firestore verified & synchronized!");
+    if (showToast) showToast("verified & synchronized!");
   };
 
   const handleClearCache = () => {
@@ -620,6 +743,18 @@ export default function Profile() {
       tab: "data",
       sectionId: "section-app-updates",
     },
+    {
+      id: "pref-ai-key",
+      title: "Custom AI Engines & Model Management",
+      subtitle: (() => {
+        const count = customAiConfigs.filter((c) => c.apiKey).length;
+        const active = customAiConfigs.find((c) => c.isActive) || customAiConfigs[0];
+        return `${count} custom engines configured • Active: ${active?.name || active?.model || "None"}`;
+      })(),
+      icon: "psychology_alt",
+      tab: "ai",
+      sectionId: "section-ai-key",
+    },
   ];
 
   const trimmedQuery = searchQuery.trim().toLowerCase();
@@ -627,7 +762,7 @@ export default function Profile() {
   const matchingPreferences = preferenceItems.filter((item) =>
     trimmedQuery
       ? item.title.toLowerCase().includes(trimmedQuery) ||
-        item.subtitle.toLowerCase().includes(trimmedQuery)
+      item.subtitle.toLowerCase().includes(trimmedQuery)
       : true
   );
 
@@ -656,7 +791,7 @@ export default function Profile() {
   ].filter((a) =>
     trimmedQuery
       ? a.title.toLowerCase().includes(trimmedQuery) ||
-        a.subtitle.toLowerCase().includes(trimmedQuery)
+      a.subtitle.toLowerCase().includes(trimmedQuery)
       : true
   ).slice(0, trimmedQuery ? 3 : 2);
 
@@ -742,6 +877,16 @@ export default function Profile() {
       badge: `${completedHabitsCount}/${habitsCount}`,
     },
     { key: "integrations", icon: "hub", label: "Notifications & Integrations" },
+    {
+      key: "ai",
+      icon: "psychology_alt",
+      label: "AI & Intelligence",
+      badge: (() => {
+        const count = customAiConfigs.filter((c) => c.apiKey).length;
+        if (count > 0) return `${count} Custom`;
+        return "Configure";
+      })(),
+    },
     { key: "appearance", icon: "palette", label: "Theme & Appearance" },
     { key: "security", icon: "shield", label: "Security & Access" },
     { key: "data", icon: "cloud_sync", label: "Data & Cloud Backup", badge: "Live" },
@@ -780,7 +925,7 @@ export default function Profile() {
                 className="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors"
               >
                 <span className="material-symbols-outlined text-[20px]">monitoring</span>
-                <span className="font-body-md text-body-md">Analytics &amp; Velocity</span>
+                <span className="font-body-md text-body-md">Performance</span>
               </Link>
               <Link
                 to="/profile"
@@ -811,7 +956,7 @@ export default function Profile() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-secondary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Personal Commits</span>
+                    <span className="truncate font-body-sm text-body-sm">Personal Rituals</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest">
                     {habitsCount}
@@ -852,7 +997,7 @@ export default function Profile() {
               <span className="material-symbols-outlined text-[18px]">offline_bolt</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-label-sm text-label-sm text-on-surface truncate">Flow Velocity</p>
+              <p className="font-label-sm text-label-sm text-on-surface truncate">Energy Flow</p>
               <p className="font-tabular-mono text-label-sm text-secondary font-semibold">
                 {flowVelocityScore}% Score
               </p>
@@ -934,9 +1079,8 @@ export default function Profile() {
                                 handleSelectSuggestion(item);
                               }}
                               onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
-                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
-                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
-                              }`}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                                }`}
                             >
                               <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                 <span className="material-symbols-outlined text-[18px] text-primary flex-shrink-0">
@@ -978,9 +1122,8 @@ export default function Profile() {
                                 handleSelectSuggestion(item);
                               }}
                               onMouseEnter={() => setSelectedSuggestionIndex(itemIdx)}
-                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${
-                                isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
-                              }`}
+                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer group ${isSelected ? "bg-primary/10 text-primary" : "hover:bg-surface-container text-on-surface"
+                                }`}
                             >
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <span className="material-symbols-outlined text-[18px] text-tertiary">{act.icon}</span>
@@ -1091,6 +1234,31 @@ export default function Profile() {
         {/* MAIN PROFILE / PREFERENCES VIEW */}
         <main className="w-full pt-16 bg-surface px-space-lg py-space-lg">
           <div className="flex flex-col w-full pb-24">
+            {/* Breadcrumb Navigation */}
+            <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-outline font-label-sm mb-space-md">
+              <ol className="flex items-center gap-1.5 flex-wrap">
+                <li className="flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[15px] text-outline">space_dashboard</span>
+                  <Link to="/dashboard" className="text-on-surface-variant hover:text-primary transition-colors font-medium">
+                    Workspace
+                  </Link>
+                </li>
+                <li aria-hidden="true" className="text-outline-variant select-none">/</li>
+                <li className="text-on-surface-variant font-medium">
+                  Settings
+                </li>
+                <li aria-hidden="true" className="text-outline-variant select-none">/</li>
+                <li className="text-on-surface-variant font-medium">
+                  Preferences
+                </li>
+                <li aria-hidden="true" className="text-outline-variant select-none">/</li>
+                <li className="flex items-center gap-1 text-on-surface font-semibold" aria-current="page">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span>
+                  <span>{SETTINGS_TABS.find(t => t.key === activeTab)?.label || "Profile & Identity"}</span>
+                </li>
+              </ol>
+            </nav>
+
             {/* Top Navigation & Heading Section */}
             <div className="flex flex-col gap-space-sm mb-space-lg">
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-space-md">
@@ -1103,7 +1271,7 @@ export default function Profile() {
                     Settings &amp; Workstation Preferences
                   </h1>
                   <p className="font-body-md text-body-md text-on-surface-variant mt-0.5">
-                    Real-time cloud synchronization for cognitive rhythms, habits, security, integrations, and workspace defaults.
+                    Real-time synchronization for cognitive rhythms, habits, security, integrations, and workspace defaults.
                   </p>
                 </div>
 
@@ -1135,22 +1303,20 @@ export default function Profile() {
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
-                    className={`flex items-center gap-space-xs px-3.5 py-2 rounded-lg font-label-md whitespace-nowrap transition-all cursor-pointer ${
-                      activeTab === tab.key
-                        ? "bg-surface-container-lowest text-primary font-semibold shadow-sm"
-                        : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low"
-                    }`}
+                    className={`flex items-center gap-space-xs px-3.5 py-2 rounded-lg font-label-md whitespace-nowrap transition-all cursor-pointer ${activeTab === tab.key
+                      ? "bg-surface-container-lowest text-primary font-semibold shadow-sm"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low"
+                      }`}
                     type="button"
                   >
                     <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
                     <span>{tab.label}</span>
                     {tab.badge && (
                       <span
-                        className={`text-[11px] px-1.5 py-0.2 rounded-full font-tabular-mono font-bold ${
-                          activeTab === tab.key
-                            ? "bg-primary text-on-primary"
-                            : "bg-surface-container-highest text-outline"
-                        }`}
+                        className={`text-[11px] px-1.5 py-0.2 rounded-full font-tabular-mono font-bold ${activeTab === tab.key
+                          ? "bg-primary text-on-primary"
+                          : "bg-surface-container-highest text-outline"
+                          }`}
                       >
                         {tab.badge}
                       </span>
@@ -1184,9 +1350,6 @@ export default function Profile() {
                           </p>
                         </div>
                       </div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed font-tabular-mono text-label-sm font-semibold">
-                        Verified Pro
-                      </span>
                     </div>
 
                     {/* Avatar Management */}
@@ -1410,7 +1573,7 @@ export default function Profile() {
                           <span className="block font-tabular-mono text-headline-sm font-bold text-primary">
                             {flowVelocityScore}%
                           </span>
-                          <span className="text-[11px] text-outline font-medium">Flow Velocity</span>
+                          <span className="text-[11px] text-outline font-medium">Energy Flow</span>
                         </div>
                         <div className="p-2 rounded-lg bg-surface-container-lowest/80">
                           <span className="block font-tabular-mono text-headline-sm font-bold text-secondary">
@@ -1436,7 +1599,7 @@ export default function Profile() {
                       </div>
                       <div>
                         <p className="font-label-md text-label-md text-on-surface font-semibold">
-                          Weekly Deep Work Cadence
+                          Weekly Deep Work
                         </p>
                         <p className="font-body-sm text-body-sm text-outline">
                           Target: {deepWorkHours}h logged of 34h / Wk
@@ -1471,7 +1634,7 @@ export default function Profile() {
                       </span>
                       <div>
                         <h2 className="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">
-                          Circadian Chronotype Engine
+                          Chronotype Engine
                         </h2>
                         <p className="font-body-sm text-body-sm text-outline">
                           Successor automatically balances demanding cognitive sprints around your biological energy peak
@@ -1487,11 +1650,10 @@ export default function Profile() {
                     {/* Morning Lark */}
                     <div
                       onClick={() => setChronotype("lark")}
-                      className={`relative p-space-md rounded-xl shadow-sm cursor-pointer transition-all flex flex-col justify-between border ${
-                        chronotype === "lark"
-                          ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/40 shadow-md"
-                          : "bg-surface-container-low border-transparent hover:bg-surface-container"
-                      }`}
+                      className={`relative p-space-md rounded-xl shadow-sm cursor-pointer transition-all flex flex-col justify-between border ${chronotype === "lark"
+                        ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/40 shadow-md"
+                        : "bg-surface-container-low border-transparent hover:bg-surface-container"
+                        }`}
                     >
                       {chronotype === "lark" && (
                         <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-primary ring-4 ring-primary-fixed" />
@@ -1519,11 +1681,10 @@ export default function Profile() {
                     {/* Steady Falcon */}
                     <div
                       onClick={() => setChronotype("falcon")}
-                      className={`relative p-space-md rounded-xl shadow-sm cursor-pointer transition-all flex flex-col justify-between border ${
-                        chronotype === "falcon"
-                          ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/40 shadow-md"
-                          : "bg-surface-container-low border-transparent hover:bg-surface-container"
-                      }`}
+                      className={`relative p-space-md rounded-xl shadow-sm cursor-pointer transition-all flex flex-col justify-between border ${chronotype === "falcon"
+                        ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/40 shadow-md"
+                        : "bg-surface-container-low border-transparent hover:bg-surface-container"
+                        }`}
                     >
                       {chronotype === "falcon" && (
                         <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-primary ring-4 ring-primary-fixed" />
@@ -1551,11 +1712,10 @@ export default function Profile() {
                     {/* Night Owl */}
                     <div
                       onClick={() => setChronotype("owl")}
-                      className={`relative p-space-md rounded-xl shadow-sm cursor-pointer transition-all flex flex-col justify-between border ${
-                        chronotype === "owl"
-                          ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/40 shadow-md"
-                          : "bg-surface-container-low border-transparent hover:bg-surface-container"
-                      }`}
+                      className={`relative p-space-md rounded-xl shadow-sm cursor-pointer transition-all flex flex-col justify-between border ${chronotype === "owl"
+                        ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/40 shadow-md"
+                        : "bg-surface-container-low border-transparent hover:bg-surface-container"
+                        }`}
                     >
                       {chronotype === "owl" && (
                         <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-primary ring-4 ring-primary-fixed" />
@@ -1668,11 +1828,10 @@ export default function Profile() {
                           setFocusDuration(dur.val);
                           setDailyTargetBlocks(dur.blocks);
                         }}
-                        className={`flex flex-col p-space-md rounded-xl cursor-pointer transition-all border ${
-                          focusDuration === dur.val
-                            ? "bg-primary-fixed text-on-primary-fixed border-primary font-semibold shadow-md ring-2 ring-primary/30"
-                            : "bg-surface-container-low hover:bg-surface-container border-transparent"
-                        }`}
+                        className={`flex flex-col p-space-md rounded-xl cursor-pointer transition-all border ${focusDuration === dur.val
+                          ? "bg-primary-fixed text-on-primary-fixed border-primary font-semibold shadow-md ring-2 ring-primary/30"
+                          : "bg-surface-container-low hover:bg-surface-container border-transparent"
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -1737,11 +1896,10 @@ export default function Profile() {
                               setDailyTargetBlocks(preset.blocks);
                               setFocusDuration(preset.dur);
                             }}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-tabular-mono transition-all cursor-pointer border ${
-                              dailyTargetBlocks === preset.blocks && focusDuration === preset.dur
-                                ? "bg-primary text-on-primary font-bold border-primary shadow-xs"
-                                : "bg-surface-container-highest hover:bg-surface-container text-on-surface-variant border-transparent"
-                            }`}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-tabular-mono transition-all cursor-pointer border ${dailyTargetBlocks === preset.blocks && focusDuration === preset.dur
+                              ? "bg-primary text-on-primary font-bold border-primary shadow-xs"
+                              : "bg-surface-container-highest hover:bg-surface-container text-on-surface-variant border-transparent"
+                              }`}
                           >
                             {preset.label}
                           </button>
@@ -1767,11 +1925,10 @@ export default function Profile() {
                             key={b.val}
                             type="button"
                             onClick={() => setBreakDuration(b.val)}
-                            className={`p-2 rounded-lg text-center transition-all cursor-pointer border ${
-                              breakDuration === b.val
-                                ? "bg-secondary-fixed text-on-secondary-fixed border-secondary font-bold"
-                                : "bg-surface-container-highest hover:bg-surface-dim text-on-surface-variant border-transparent"
-                            }`}
+                            className={`p-2 rounded-lg text-center transition-all cursor-pointer border ${breakDuration === b.val
+                              ? "bg-secondary-fixed text-on-secondary-fixed border-secondary font-bold"
+                              : "bg-surface-container-highest hover:bg-surface-dim text-on-surface-variant border-transparent"
+                              }`}
                           >
                             <span className="block font-tabular-mono text-body-sm font-semibold">{b.label}</span>
                             <span className="text-[10px] text-outline">{b.sub}</span>
@@ -1802,10 +1959,10 @@ export default function Profile() {
                       </span>
                       <div>
                         <h2 className="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">
-                          Active Rituals &amp; Habit Loop (Real-Time Cloud)
+                          Active Rituals &amp; Habit Loop
                         </h2>
                         <p className="font-body-sm text-body-sm text-outline">
-                          Track daily cognitive routines. Changes persist directly to Cloud Firestore.
+                          Track daily routines.
                         </p>
                       </div>
                     </div>
@@ -1843,11 +2000,10 @@ export default function Profile() {
                             key={dur}
                             type="button"
                             onClick={() => setNewHabitDuration(dur)}
-                            className={`px-2.5 py-1 text-label-sm font-tabular-mono rounded-md transition-colors cursor-pointer ${
-                              newHabitDuration === dur
-                                ? "bg-primary text-on-primary font-bold shadow-xs"
-                                : "text-outline hover:text-on-surface"
-                            }`}
+                            className={`px-2.5 py-1 text-label-sm font-tabular-mono rounded-md transition-colors cursor-pointer ${newHabitDuration === dur
+                              ? "bg-primary text-on-primary font-bold shadow-xs"
+                              : "text-outline hover:text-on-surface"
+                              }`}
                           >
                             {dur}
                           </button>
@@ -1869,7 +2025,7 @@ export default function Profile() {
                     {loadingHabits ? (
                       <div className="p-8 text-center text-outline">
                         <span className="material-symbols-outlined animate-spin text-2xl">sync</span>
-                        <p className="font-body-sm mt-1">Loading habits from Cloud Firestore...</p>
+                        <p className="font-body-sm mt-1">Loading habits...</p>
                       </div>
                     ) : habits.length === 0 ? (
                       <div className="p-8 text-center text-outline bg-surface-container-low rounded-xl">
@@ -1883,21 +2039,19 @@ export default function Profile() {
                       habits.map((h) => (
                         <div
                           key={h.id}
-                          className={`flex items-center justify-between p-space-sm rounded-xl transition-all border ${
-                            h.done
-                              ? "bg-surface-container-high/40 border-outline-variant/10 text-outline"
-                              : "bg-surface-container-low border-transparent hover:border-outline-variant/20 text-on-surface"
-                          }`}
+                          className={`flex items-center justify-between p-space-sm rounded-xl transition-all border ${h.done
+                            ? "bg-surface-container-high/40 border-outline-variant/10 text-outline"
+                            : "bg-surface-container-low border-transparent hover:border-outline-variant/20 text-on-surface"
+                            }`}
                         >
                           <div className="flex items-center gap-space-sm min-w-0 flex-1">
                             <button
                               type="button"
                               onClick={() => toggleHabit(h.id, !h.done)}
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer flex-shrink-0 ${
-                                h.done
-                                  ? "bg-secondary text-on-secondary"
-                                  : "border-2 border-outline hover:border-primary"
-                              }`}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer flex-shrink-0 ${h.done
+                                ? "bg-secondary text-on-secondary"
+                                : "border-2 border-outline hover:border-primary"
+                                }`}
                             >
                               {h.done && (
                                 <span className="material-symbols-outlined text-[16px] font-bold">
@@ -1906,9 +2060,8 @@ export default function Profile() {
                               )}
                             </button>
                             <span
-                              className={`font-body-md text-body-md truncate ${
-                                h.done ? "line-through text-outline" : "font-medium"
-                              }`}
+                              className={`font-body-md text-body-md truncate ${h.done ? "line-through text-outline" : "font-medium"
+                                }`}
                             >
                               {h.title}
                             </span>
@@ -1919,11 +2072,10 @@ export default function Profile() {
                               {h.duration || "15m"}
                             </span>
                             <span
-                              className={`text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full ${
-                                h.done
-                                  ? "bg-secondary-fixed/40 text-on-secondary-fixed"
-                                  : "bg-surface-container-highest text-outline"
-                              }`}
+                              className={`text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full ${h.done
+                                ? "bg-secondary-fixed/40 text-on-secondary-fixed"
+                                : "bg-surface-container-highest text-outline"
+                                }`}
                             >
                               {h.done ? "Completed" : "Pending"}
                             </span>
@@ -1953,7 +2105,7 @@ export default function Profile() {
                     </span>
                     <div>
                       <h2 className="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">
-                        Rituals &amp; Task Dispatch Automation
+                        Rituals &amp; Task Assigners
                       </h2>
                       <p className="font-body-sm text-body-sm text-outline">
                         Configure zero-friction defaults for rapid task dispatching and queue rollover
@@ -2024,7 +2176,7 @@ export default function Profile() {
                         </span>
                         <div>
                           <p className="font-label-md text-label-md text-on-surface font-semibold">
-                            Morning Velocity Digest
+                            Morning Digest
                           </p>
                           <p className="font-body-sm text-body-sm text-outline">
                             Dispatches high-priority focus queue via desktop notification at 08:30 AM.
@@ -2230,10 +2382,7 @@ export default function Profile() {
                     </div>
 
                     <div className="flex flex-col gap-1.5 p-space-md rounded-xl bg-surface-container-low">
-                      <label className="font-label-sm text-label-sm text-on-surface-variant font-semibold">
-                        Velocity Digest Dispatch Frequency
-                      </label>
-                      <select
+                       <select
                         value={digestFrequency}
                         onChange={(e) => setDigestFrequency(e.target.value)}
                         className="w-full px-3 py-2 bg-surface-container text-on-surface rounded-lg font-body-sm outline-none cursor-pointer"
@@ -2248,7 +2397,471 @@ export default function Profile() {
               </div>
             )}
 
-            {/* 5. THEME & APPEARANCE TAB */}
+            {/* 5. AI & INTELLIGENCE TAB (CUSTOM USER-DEFINED ENGINES, MODELS & LINKS) */}
+            {activeTab === "ai" && (
+              <div className="flex flex-col gap-space-lg animate-in fade-in duration-200">
+                <section
+                  id="section-ai-key"
+                  className="bg-surface-container-lowest rounded-xl p-space-lg shadow-[0_2px_12px_rgba(15,23,42,0.04)] flex flex-col gap-space-md border border-outline-variant/15"
+                >
+                  {/* Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-space-xs border-b border-surface-container gap-3">
+                    <div className="flex items-center gap-space-xs">
+                      <span className="p-2 rounded-lg bg-surface-container-high text-primary material-symbols-outlined text-[20px]">
+                        psychology_alt
+                      </span>
+                      <div>
+                        <h2 className="font-headline-sm text-headline-sm text-on-surface font-semibold leading-tight">
+                          Model Configurations
+                        </h2>
+                        <p className="font-body-sm text-body-sm text-outline">
+                          Configure your own custom AI endpoints, model IDs, and API keys with live connectivity testing
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-full font-tabular-mono text-label-sm font-semibold bg-secondary-fixed text-on-secondary-fixed">
+                        {customAiConfigs.length} {customAiConfigs.length === 1 ? "Engine" : "Engines"} Configured
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newId = `custom-ai-${Date.now()}`;
+                          setCustomAiConfigs((prev) => [
+                            ...prev,
+                            {
+                              id: newId,
+                              name: `Custom Engine ${prev.length + 1}`,
+                              endpoint: "https://generativelanguage.googleapis.com",
+                              apiKey: "",
+                              model: "gemini-3.8-flash",
+                              providerType: "gemini",
+                              isActive: prev.length === 0,
+                            },
+                          ]);
+                          if (showToast) showToast("New custom AI configuration added!", "info");
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary text-[12px] font-semibold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">add</span>
+                        <span>Add Custom Engine</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Active Engine Spotlight Banner */}
+                  {(() => {
+                    const active = customAiConfigs.find((c) => c.isActive) || customAiConfigs[0];
+                    if (!active) return null;
+                    return (
+                      <div className="p-space-md rounded-xl bg-surface-container-low border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                            <span className="material-symbols-outlined text-[22px]">bolt</span>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-label-sm text-[11px] font-bold uppercase tracking-wider text-primary">
+                                Active AI Engine
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-primary text-on-primary">
+                                In Use
+                              </span>
+                            </div>
+                            <h4 className="font-headline-sm text-body-md font-bold text-on-surface">
+                              {active.name || "Untitled Engine"} •{" "}
+                              <span className="font-tabular-mono text-primary font-semibold">
+                                {active.model || "No model specified"}
+                              </span>
+                            </h4>
+                            <p className="font-body-sm text-[12px] text-outline truncate max-w-lg font-tabular-mono">
+                              Link: {active.endpoint || "Default Endpoint"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {saving ? "sync" : "save"}
+                            </span>
+                            <span>{saving ? "Saving..." : "Save All Changes"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Custom AI Configurations List */}
+                  <div className="flex flex-col gap-4">
+                    {customAiConfigs.map((item) => {
+                      const isMasked = !showKeyMap[item.id];
+                      const isTesting = testingConfigId === item.id;
+                      const status = configStatuses[item.id];
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-4 rounded-xl border transition-all ${
+                            item.isActive
+                              ? "bg-surface-container-high/70 border-primary/50 ring-1 ring-primary/40 shadow-sm"
+                              : "bg-surface-container-low border-outline-variant/15 hover:border-outline-variant/30"
+                          }`}
+                        >
+                          {/* Card Top Row: Engine Name, Protocol, Active Toggle & Delete */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-outline-variant/10">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="material-symbols-outlined text-primary text-[20px]">
+                                {item.providerType === "gemini"
+                                  ? "neurology"
+                                  : item.providerType === "anthropic"
+                                  ? "psychology"
+                                  : item.providerType === "groq"
+                                  ? "bolt"
+                                  : "token"}
+                              </span>
+                              <input
+                                type="text"
+                                value={item.name}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomAiConfigs((prev) =>
+                                    prev.map((c) => (c.id === item.id ? { ...c, name: val } : c))
+                                  );
+                                }}
+                                placeholder="Custom Engine Name (e.g. My LLM Engine)"
+                                className="font-headline-sm text-body-md font-bold text-on-surface bg-transparent border-b border-transparent hover:border-outline-variant/30 focus:border-primary focus:bg-surface-container-lowest px-1 py-0.5 rounded outline-none transition-all flex-1 min-w-0"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {/* Protocol Type Selector */}
+                              <select
+                                value={item.providerType || "gemini"}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomAiConfigs((prev) =>
+                                    prev.map((c) => {
+                                      if (c.id !== item.id) return c;
+                                      let defaultEndpoint = c.endpoint;
+                                      let defaultModel = c.model;
+                                      if (val === "gemini") {
+                                        defaultEndpoint = "https://generativelanguage.googleapis.com";
+                                        defaultModel = "gemini-3.8-flash";
+                                      } else if (val === "openai") {
+                                        defaultEndpoint = "https://api.openai.com/v1";
+                                        defaultModel = "gpt-4o-mini";
+                                      } else if (val === "anthropic") {
+                                        defaultEndpoint = "https://api.anthropic.com";
+                                        defaultModel = "claude-3-5-haiku-latest";
+                                      } else if (val === "groq") {
+                                        defaultEndpoint = "https://api.groq.com/openai/v1";
+                                        defaultModel = "llama-3.3-70b-versatile";
+                                      }
+                                      return {
+                                        ...c,
+                                        providerType: val,
+                                        endpoint: defaultEndpoint,
+                                        model: defaultModel,
+                                      };
+                                    })
+                                  );
+                                }}
+                                className="px-2.5 py-1 rounded-md bg-surface-container-lowest text-on-surface border border-outline-variant/15 text-[11px] font-semibold outline-none cursor-pointer"
+                                title="Protocol format used to send requests to this endpoint"
+                              >
+                                <option value="gemini">Google Gemini REST</option>
+                                <option value="openai">OpenAI-Compatible REST</option>
+                                <option value="anthropic">Anthropic Messages REST</option>
+                                <option value="groq">Groq Cloud REST (LPU)</option>
+                              </select>
+
+                              {/* Active Engine Toggle */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCustomAiConfigs((prev) =>
+                                    prev.map((c) => ({ ...c, isActive: c.id === item.id }))
+                                  );
+                                  setAiProvider(item.providerType || "gemini");
+                                  setAiModel(item.model || "");
+                                  setAiApiKey(item.apiKey || "");
+                                  if (showToast) {
+                                    showToast(`Active engine set to: ${item.name || item.model}`, "info");
+                                  }
+                                }}
+                                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer ${
+                                  item.isActive
+                                    ? "bg-primary text-on-primary shadow-xs"
+                                    : "bg-surface-container hover:bg-surface-container-high text-outline hover:text-on-surface border border-outline-variant/15"
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {item.isActive ? "radio_button_checked" : "radio_button_unchecked"}
+                                </span>
+                                <span>{item.isActive ? "Active Engine" : "Set Active"}</span>
+                              </button>
+
+                              {/* Delete Button */}
+                              {customAiConfigs.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCustomAiConfigs((prev) => {
+                                      const remaining = prev.filter((c) => c.id !== item.id);
+                                      if (item.isActive && remaining.length > 0) {
+                                        remaining[0].isActive = true;
+                                      }
+                                      return remaining;
+                                    });
+                                  }}
+                                  className="p-1 rounded text-outline hover:text-error hover:bg-error-container/30 transition-colors cursor-pointer"
+                                  title="Delete this custom configuration"
+                                >
+                                  <span className="material-symbols-outlined text-[17px]">delete</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Inputs Grid: Link/Endpoint & Model Name */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3">
+                            {/* Endpoint / Link */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-semibold text-outline uppercase tracking-wider flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">link</span>
+                                API Endpoint / Link
+                              </label>
+                              <input
+                                type="text"
+                                value={item.endpoint || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomAiConfigs((prev) =>
+                                    prev.map((c) => (c.id === item.id ? { ...c, endpoint: val } : c))
+                                  );
+                                }}
+                                placeholder={
+                                  item.providerType === "gemini"
+                                    ? "https://generativelanguage.googleapis.com"
+                                    : item.providerType === "anthropic"
+                                    ? "https://api.anthropic.com"
+                                    : item.providerType === "groq"
+                                    ? "https://api.groq.com/openai/v1"
+                                    : "https://api.openai.com/v1"
+                                }
+                                className="w-full px-3 py-1.5 bg-surface-container-lowest text-on-surface rounded-lg font-tabular-mono text-body-sm outline-none transition-all focus:ring-2 focus:ring-primary/20 border border-outline-variant/15"
+                              />
+                            </div>
+
+                            {/* Model Name / ID */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-semibold text-outline uppercase tracking-wider flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">psychology</span>
+                                Custom Model Name / ID
+                              </label>
+                              <input
+                                type="text"
+                                value={item.model || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomAiConfigs((prev) =>
+                                    prev.map((c) => (c.id === item.id ? { ...c, model: val } : c))
+                                  );
+                                  if (item.isActive) {
+                                    setAiModel(val);
+                                  }
+                                }}
+                                placeholder="Enter model ID (e.g. gemini-3.8-flash, gpt-4o, claude-3-5-sonnet)"
+                                className="w-full px-3 py-1.5 bg-surface-container-lowest text-on-surface rounded-lg font-tabular-mono text-body-sm outline-none transition-all focus:ring-2 focus:ring-primary/20 border border-outline-variant/15 font-semibold"
+                              />
+                            </div>
+                          </div>
+
+                          {/* API Key Row */}
+                          <div className="flex flex-col gap-1 pt-3">
+                            <label className="text-[11px] font-semibold text-outline uppercase tracking-wider flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[14px]">key</span>
+                              API Key
+                            </label>
+                            <div className="relative flex items-center">
+                              <input
+                                type={isMasked ? "password" : "text"}
+                                value={item.apiKey || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomAiConfigs((prev) =>
+                                    prev.map((c) => (c.id === item.id ? { ...c, apiKey: val } : c))
+                                  );
+                                  if (item.isActive) {
+                                    setAiApiKey(val);
+                                  }
+                                  setConfigStatuses((prev) => ({ ...prev, [item.id]: null }));
+                                }}
+                                placeholder="Paste your API key here..."
+                                className="w-full pl-3 pr-28 py-1.5 bg-surface-container-lowest text-on-surface rounded-lg font-tabular-mono text-body-sm outline-none transition-all focus:ring-2 focus:ring-primary/20 border border-outline-variant/15"
+                              />
+
+                              <div className="absolute right-2 flex items-center gap-1">
+                                {item.apiKey && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(item.apiKey);
+                                        if (showToast) showToast("API key copied to clipboard!");
+                                      }}
+                                      className="p-1 text-outline hover:text-primary transition-colors cursor-pointer"
+                                      title="Copy key"
+                                    >
+                                      <span className="material-symbols-outlined text-[15px]">content_copy</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCustomAiConfigs((prev) =>
+                                          prev.map((c) => (c.id === item.id ? { ...c, apiKey: "" } : c))
+                                        );
+                                        if (item.isActive) setAiApiKey("");
+                                        setConfigStatuses((prev) => ({ ...prev, [item.id]: null }));
+                                      }}
+                                      className="p-1 text-outline hover:text-error transition-colors cursor-pointer"
+                                      title="Clear key"
+                                    >
+                                      <span className="material-symbols-outlined text-[15px]">close</span>
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setShowKeyMap((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
+                                  }
+                                  className="p-1 text-outline hover:text-on-surface transition-colors cursor-pointer"
+                                  title={isMasked ? "Reveal key" : "Hide key"}
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">
+                                    {isMasked ? "visibility" : "visibility_off"}
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Live Test & Feedback Banner */}
+                          <div className="mt-3 pt-2.5 border-t border-outline-variant/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              {status && (
+                                <div
+                                  className={`px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1.5 border leading-tight ${
+                                    status.type === "success"
+                                      ? "bg-secondary-fixed/20 border-secondary/30 text-secondary"
+                                      : "bg-error-container/30 border-error/30 text-error"
+                                  }`}
+                                >
+                                  <span className="material-symbols-outlined text-[14px] shrink-0">
+                                    {status.type === "success" ? "check_circle" : "error"}
+                                  </span>
+                                  <span className="truncate">{status.message}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!item.apiKey || !item.apiKey.trim()) {
+                                  setConfigStatuses((prev) => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      type: "error",
+                                      message: "Please enter an API key before testing.",
+                                    },
+                                  }));
+                                  return;
+                                }
+
+                                setTestingConfigId(item.id);
+                                try {
+                                  const result = await testAiKeyConnectivity({
+                                    provider: item.providerType || "gemini",
+                                    apiKey: item.apiKey || "",
+                                    model: item.model || "",
+                                    endpoint: item.endpoint || "",
+                                  });
+
+                                  setConfigStatuses((prev) => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      type: result.ok ? "success" : "error",
+                                      message: result.message,
+                                      latencyMs: result.latencyMs,
+                                    },
+                                  }));
+
+                                  if (result.ok) {
+                                    if (showToast) {
+                                      showToast(
+                                        `✓ ${item.name || item.model} verified in ${result.latencyMs}ms!`,
+                                        "success"
+                                      );
+                                    }
+                                  } else {
+                                    if (showToast) {
+                                      showToast(`✕ Connection failed: ${result.message}`, "error");
+                                    }
+                                  }
+                                } catch (err) {
+                                  setConfigStatuses((prev) => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      type: "error",
+                                      message: err.message || "Failed to reach endpoint.",
+                                    },
+                                  }));
+                                } finally {
+                                  setTestingConfigId(null);
+                                }
+                              }}
+                              disabled={isTesting || !item.apiKey?.trim()}
+                              className={`px-3 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 self-start sm:self-auto ${
+                                status?.type === "success"
+                                  ? "bg-secondary-fixed/50 text-secondary border border-secondary/30"
+                                  : status?.type === "error"
+                                  ? "bg-error-container/50 text-error border border-error/30"
+                                  : "bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline-variant/15"
+                              }`}
+                            >
+                              <span
+                                className={`material-symbols-outlined text-[14px] ${
+                                  isTesting ? "animate-spin text-primary" : ""
+                                }`}
+                              >
+                                {isTesting ? "sync" : status?.type === "success" ? "check_circle" : "network_check"}
+                              </span>
+                              <span>
+                                {isTesting
+                                  ? "Testing Handshake..."
+                                  : status?.type === "success"
+                                  ? `Verified (${status.latencyMs}ms)`
+                                  : "Test Connection"}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* 6. THEME & APPEARANCE TAB */}
             {activeTab === "appearance" && (
               <div className="flex flex-col gap-space-lg animate-in fade-in duration-200">
                 {/* Theme Selection */}
@@ -2299,11 +2912,10 @@ export default function Profile() {
                       <div
                         key={t.key}
                         onClick={() => setTheme(t.key)}
-                        className={`p-space-md rounded-xl cursor-pointer transition-all border ${
-                          theme === t.key
-                            ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/30 shadow-md"
-                            : "bg-surface-container-low hover:bg-surface-container border-transparent"
-                        }`}
+                        className={`p-space-md rounded-xl cursor-pointer transition-all border ${theme === t.key
+                          ? "bg-surface-container-high/80 border-primary ring-2 ring-primary/30 shadow-md"
+                          : "bg-surface-container-low hover:bg-surface-container border-transparent"
+                          }`}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <span className="material-symbols-outlined text-[22px] text-primary">
@@ -2358,11 +2970,10 @@ export default function Profile() {
                         <div
                           key={c.key}
                           onClick={() => setAccentColor(c.key)}
-                          className={`p-3 rounded-xl cursor-pointer transition-all border flex items-center gap-3 ${
-                            accentColor === c.key
-                              ? "bg-surface-container-high border-primary ring-2 ring-primary/40"
-                              : "bg-surface-container-low hover:bg-surface-container border-transparent"
-                          }`}
+                          className={`p-3 rounded-xl cursor-pointer transition-all border flex items-center gap-3 ${accentColor === c.key
+                            ? "bg-surface-container-high border-primary ring-2 ring-primary/40"
+                            : "bg-surface-container-low hover:bg-surface-container border-transparent"
+                            }`}
                         >
                           <span
                             className="w-5 h-5 rounded-full flex-shrink-0 shadow-sm"
@@ -2394,11 +3005,10 @@ export default function Profile() {
                             key={d.key}
                             type="button"
                             onClick={() => setDensity(d.key)}
-                            className={`p-2.5 rounded-lg text-center transition-all cursor-pointer border ${
-                              density === d.key
-                                ? "bg-surface-container-highest border-primary font-bold text-on-surface"
-                                : "bg-surface-container text-outline hover:text-on-surface border-transparent"
-                            }`}
+                            className={`p-2.5 rounded-lg text-center transition-all cursor-pointer border ${density === d.key
+                              ? "bg-surface-container-highest border-primary font-bold text-on-surface"
+                              : "bg-surface-container text-outline hover:text-on-surface border-transparent"
+                              }`}
                           >
                             <span className="block text-body-sm font-semibold">{d.label}</span>
                             <span className="text-[11px] text-outline">{d.sub}</span>
@@ -2492,11 +3102,10 @@ export default function Profile() {
 
                     {resetEmailStatus && (
                       <div
-                        className={`p-3 rounded-lg text-body-sm flex items-center gap-2 ${
-                          resetEmailStatus.type === "success"
-                            ? "bg-secondary-fixed/30 text-secondary border border-secondary/20"
-                            : "bg-error-container/40 text-error border border-error/20"
-                        }`}
+                        className={`p-3 rounded-lg text-body-sm flex items-center gap-2 ${resetEmailStatus.type === "success"
+                          ? "bg-secondary-fixed/30 text-secondary border border-secondary/20"
+                          : "bg-error-container/40 text-error border border-error/20"
+                          }`}
                       >
                         <span className="material-symbols-outlined text-[18px]">
                           {resetEmailStatus.type === "success" ? "check_circle" : "error"}
@@ -2527,11 +3136,10 @@ export default function Profile() {
                       </div>
                     </div>
                     <span
-                      className={`px-2.5 py-0.5 rounded-full font-tabular-mono text-label-sm font-semibold ${
-                        hasWorkstationToken
-                          ? "bg-secondary-fixed text-on-secondary-fixed"
-                          : "bg-surface-container-highest text-outline"
-                      }`}
+                      className={`px-2.5 py-0.5 rounded-full font-tabular-mono text-label-sm font-semibold ${hasWorkstationToken
+                        ? "bg-secondary-fixed text-on-secondary-fixed"
+                        : "bg-surface-container-highest text-outline"
+                        }`}
                     >
                       {hasWorkstationToken ? "Token Active" : "No Active Token"}
                     </span>
@@ -2611,6 +3219,44 @@ export default function Profile() {
                   </div>
 
                   <div className="space-y-space-sm pt-2">
+                    {/* Standard App/Device UUID Identification Card */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-space-sm rounded-lg bg-surface-container-low gap-3 border border-outline-variant/15">
+                      <div className="flex items-center gap-space-sm">
+                        <div className="w-9 h-9 rounded-lg bg-surface-container-lowest shadow-sm flex items-center justify-center text-primary shrink-0">
+                          <span className="material-symbols-outlined text-[20px]">fingerprint</span>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-label-md text-label-md text-on-surface font-semibold">
+                              Standard App/Device UUID
+                            </p>
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-primary/10 text-primary uppercase">
+                              {deviceUuidInfo?.platform === "tauri" ? "Rust Tauri Native" : "Web Storage"}
+                            </span>
+                          </div>
+                          <p className="font-tabular-mono text-[12px] text-on-surface-variant font-medium select-all">
+                            {deviceUuidInfo?.uuid || "Generating standard UUID..."}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {deviceUuidInfo?.uuid && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(deviceUuidInfo.uuid);
+                              if (showToast) showToast("Device UUID copied to clipboard!", "success");
+                            }}
+                            className="px-2.5 py-1 rounded-md bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                            title="Copy UUID to clipboard"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                            <span>Copy UUID</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low">
                       <div className="flex items-center gap-space-sm">
                         <div className="w-9 h-9 rounded-lg bg-surface-container-lowest shadow-sm flex items-center justify-center text-primary">

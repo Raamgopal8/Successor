@@ -101,3 +101,96 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+/* ==========================================================================
+   Successor Loading Screen Keyframes & Compositor Animations
+   ========================================================================== */
+@keyframes successorFloat {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.02);
+  }
+}
+
+@keyframes successorPulseRing {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes successorSpinSlow {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes successorShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes successorGlowPulse {
+  0%, 100% {
+    opacity: 0.45;
+    filter: blur(40px);
+  }
+  50% {
+    opacity: 0.8;
+    filter: blur(55px);
+  }
+}
+
+.animate-successor-float {
+  animation: successorFloat 3.2s ease-in-out infinite;
+}
+
+.animate-successor-pulse-ring-1 {
+  animation: successorPulseRing 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+.animate-successor-pulse-ring-2 {
+  animation: successorPulseRing 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite 0.8s;
+}
+
+.animate-successor-spin-slow {
+  animation: successorSpinSlow 12s linear infinite;
+}
+
+.animate-successor-shimmer {
+  animation: successorShimmer 1.8s infinite;
+}
+
+.animate-successor-glow {
+  animation: successorGlowPulse 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-successor-float,
+  .animate-successor-pulse-ring-1,
+  .animate-successor-pulse-ring-2,
+  .animate-successor-spin-slow,
+  .animate-successor-shimmer,
+  .animate-successor-glow {
+    animation: none !important;
+    opacity: 0.7 !important;
+    transform: none !important;
+  }
+}

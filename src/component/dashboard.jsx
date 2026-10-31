@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import image from "../assets/logo.png";
-import { useApp } from "../context/AppContext";
+import { useApp, getLocalDateString } from "../context/AppContext";
 import LabelCustomizerModal from "./LabelCustomizerModal";
 import QuickCaptureModal from "./QuickCaptureModal";
 import ZenFocusDeck from "./ZenFocusDeck";
@@ -63,9 +63,13 @@ export default function Dashboard() {
     pauseTimer,
     resetTimer,
     setTimerSeconds,
+    incrementCompletedBlocks,
+    refillStreakFreeze,
+    getLocalDateString,
     toggleDailyHighlight,
     setDailyHighlightsAndLockPlan,
     dailyHighlightTasks,
+    runDailyRolloverAndReset,
   } = useApp();
 
   // Label Customizer Modal
@@ -97,6 +101,49 @@ export default function Dashboard() {
   const handleOpenMorningPlanning = (step = 1) => {
     setMorningPlanningStep(step);
     setShowMorningPlanningModal(true);
+  };
+
+  // Primary Highlights completed filtering & cleanup preferences
+  const [hideCompletedHighlights, setHideCompletedHighlights] = useState(() => {
+    return localStorage.getItem("successor_hide_completed_highlights") === "true";
+  });
+
+  const toggleHideCompletedHighlights = () => {
+    setHideCompletedHighlights((prev) => {
+      const next = !prev;
+      localStorage.setItem("successor_hide_completed_highlights", next ? "true" : "false");
+      return next;
+    });
+  };
+
+  const completedHighlights = useMemo(
+    () => dailyHighlightTasks.filter((t) => t.completed),
+    [dailyHighlightTasks]
+  );
+  const pendingHighlights = useMemo(
+    () => dailyHighlightTasks.filter((t) => !t.completed),
+    [dailyHighlightTasks]
+  );
+  const displayedHighlights = hideCompletedHighlights ? pendingHighlights : dailyHighlightTasks;
+
+  const handleDeleteCompletedHighlights = async () => {
+    if (completedHighlights.length === 0) return;
+    const count = completedHighlights.length;
+    const confirmMessage = `Permanently delete ${count} completed highlight task${
+      count > 1 ? "s" : ""
+    }This action cannot be undone.`;
+    if (window.confirm(confirmMessage)) {
+      for (const t of completedHighlights) {
+        await deleteTask(t.id);
+      }
+    }
+  };
+
+  const handleDeleteHighlight = async (e, task) => {
+    e.stopPropagation();
+    if (window.confirm(`Permanently delete "${task.title}" from database?`)) {
+      await deleteTask(task.id);
+    }
   };
 
   // Filter state: 'all' | 'high-impact' | 'quick-wins' | 'habits' | custom project key
@@ -960,15 +1007,23 @@ export default function Dashboard() {
         : activeChrono.energyProfile.offPeak);
 
   const focusStreak =
-    userProfile?.focusStreak ??
-    userProfile?.streak ??
-    (completedCount > 0 ? 1 : 0);
+    typeof userProfile?.focusStreak === "number"
+      ? userProfile.focusStreak
+      : typeof userProfile?.streak === "number"
+        ? userProfile.streak
+        : (completedCount > 0 ? 1 : 0);
 
-  const targetBlocks = userProfile?.dailyTargetBlocks || 3;
-  const completedBlocks =
-    typeof userProfile?.completedBlocks === "number"
+  const streakFreezes =
+    typeof userProfile?.streakFreezes === "number" ? userProfile.streakFreezes : 2;
+
+  const todayDateStr = getLocalDateString(new Date());
+  const isBlocksFromToday = userProfile?.lastResetDate === todayDateStr;
+  const completedBlocks = isBlocksFromToday && typeof userProfile?.completedBlocks === "number"
+    ? userProfile.completedBlocks
+    : (!userProfile?.lastResetDate && typeof userProfile?.completedBlocks === "number"
       ? userProfile.completedBlocks
-      : 0;
+      : 0);
+  const targetBlocks = Math.max(1, userProfile?.dailyTargetBlocks || 3);
   const blocksPercent = Math.min(
     100,
     Math.round((completedBlocks / targetBlocks) * 100)
@@ -1016,7 +1071,7 @@ export default function Dashboard() {
                 className="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors"
               >
                 <span className="material-symbols-outlined text-[20px]">monitoring</span>
-                <span className="font-body-md text-body-md">Analytics &amp; Velocity</span>
+                <span className="font-body-md text-body-md">Performance</span>
               </Link>
               <Link
                 to="/profile"
@@ -1053,7 +1108,7 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-secondary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Personal Commitments</span>
+                    <span className="truncate font-body-sm text-body-sm">Personal</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest group-hover:text-on-surface">
                     {habitsCount}
@@ -1525,6 +1580,21 @@ export default function Dashboard() {
         <main className="w-full pt-16 bg-surface px-space-lg py-space-lg">
           <div className="flex flex-col w-full gap-y-space-lg">
 
+            {/* BREADCRUMB NAVIGATION */}
+            <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-outline font-label-sm">
+              <ol className="flex items-center gap-1.5 flex-wrap">
+                <li className="flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[15px] text-outline">space_dashboard</span>
+                  <span className="text-on-surface-variant font-medium">Workspace</span>
+                </li>
+                <li aria-hidden="true" className="text-outline-variant select-none">/</li>
+                <li className="flex items-center gap-1 text-on-surface font-semibold" aria-current="page">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span>
+                  <span>Today's Focus</span>
+                </li>
+              </ol>
+            </nav>
+
             {/* HERO & GREETING BANNER */}
             <section className="relative overflow-hidden rounded-xl bg-surface-container p-space-lg shadow-sm">
               <div className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-primary-fixed-dim/40 blur-3xl" />
@@ -1648,13 +1718,39 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-space-sm p-space-sm rounded-lg bg-surface-container-lowest shadow-sm">
+                  <div className="flex items-center gap-space-sm p-space-sm rounded-lg bg-surface-container-lowest shadow-sm hover:bg-surface-container-low transition-all border border-transparent hover:border-outline-variant/20 group">
                     <div className="w-9 h-9 rounded-lg bg-error-container/60 flex items-center justify-center text-error flex-shrink-0">
                       <span className="material-symbols-outlined text-[20px]">local_fire_department</span>
                     </div>
-                    <div className="min-w-0">
-                      <span className="font-label-sm text-label-sm text-outline block truncate">Focus Streak</span>
-                      <span className="font-tabular-mono text-body-md font-semibold text-on-surface">{focusStreak} Days 🔥</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-label-sm text-label-sm text-outline block truncate">Focus Streak</span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded cursor-help"
+                            title="Streak Freezes auto-protect your focus streak if a day is missed without completing any tasks."
+                          >
+                            <span className="material-symbols-outlined text-[12px]">ac_unit</span>
+                            {streakFreezes}
+                          </span>
+                          {streakFreezes < 3 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                refillStreakFreeze();
+                              }}
+                              className="text-[10px] w-4 h-4 rounded bg-surface-container-high hover:bg-primary/20 hover:text-primary text-on-surface-variant flex items-center justify-center transition font-bold"
+                              title="Refill 1 Streak Freeze"
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <span className="font-tabular-mono text-body-md font-semibold text-on-surface block truncate">
+                        {focusStreak} Days 🔥
+                      </span>
                     </div>
                   </div>
 
@@ -1670,16 +1766,37 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-space-sm p-space-sm rounded-lg bg-surface-container-lowest shadow-sm">
-                    <div className="w-9 h-9 rounded-lg bg-primary-fixed/60 flex items-center justify-center text-primary flex-shrink-0">
-                      <span className="material-symbols-outlined text-[20px]">nest_clock_farsight_analog</span>
+                  <div className="flex items-center justify-between gap-space-sm p-space-sm rounded-lg bg-surface-container-lowest shadow-sm hover:bg-surface-container-low transition-all border border-transparent hover:border-outline-variant/20 group">
+                    <div
+                      onClick={handleOpenScheduleCustomizer}
+                      className="flex items-center gap-space-sm min-w-0 flex-1 cursor-pointer"
+                      title="Click to adjust daily target focus blocks & schedule"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-primary-fixed/60 flex items-center justify-center text-primary flex-shrink-0 group-hover:scale-105 transition-transform">
+                        <span className="material-symbols-outlined text-[20px]">nest_clock_farsight_analog</span>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="font-label-sm text-label-sm text-outline block truncate">Today&apos;s Focus Blocks</span>
+                          <span className="material-symbols-outlined text-[13px] text-outline opacity-0 group-hover:opacity-100 transition-opacity">tune</span>
+                        </div>
+                        <span className="font-tabular-mono text-body-md font-semibold text-on-surface">
+                          {completedBlocks} of {targetBlocks} ({blocksPercent}%)
+                        </span>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <span className="font-label-sm text-label-sm text-outline block truncate">Today&apos;s Focus Blocks</span>
-                      <span className="font-tabular-mono text-body-md font-semibold text-on-surface">
-                        {completedBlocks} of {targetBlocks} ({blocksPercent}%)
-                      </span>
-                    </div>
+                    {/* Quick increment +1 button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        incrementCompletedBlocks(1);
+                      }}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-primary hover:bg-primary/10 transition-colors cursor-pointer flex-shrink-0"
+                      title="Log completed Focus Block (+1)"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">add_circle</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1724,10 +1841,11 @@ export default function Dashboard() {
                 <section className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-500/10 via-surface-container-low to-surface-container-lowest border border-amber-500/30 shadow-sm relative overflow-hidden">
                   <div className="absolute -right-8 -top-8 w-36 h-36 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
 
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+                  {/* Header Row */}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shadow-xs shrink-0">
-                        <span className="material-symbols-outlined text-[22px] fill-1">stars</span>
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shadow-xs shrink-0">
+                        <span className="material-symbols-outlined text-[24px] fill-1">stars</span>
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -1735,7 +1853,7 @@ export default function Dashboard() {
                             Today&apos;s Primary Highlight{dailyHighlightTasks.length > 1 ? "s" : ""}
                           </h2>
                           <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 font-label-sm text-[11px] font-bold">
-                            {dailyHighlightTasks.length} Non-Negotiable{dailyHighlightTasks.length === 1 ? "" : "s"}
+                            {pendingHighlights.length} Active • {completedHighlights.length} Done
                           </span>
                           {userProfile?.dailyFocusPlanLocked && (
                             <span
@@ -1748,22 +1866,63 @@ export default function Dashboard() {
                           )}
                         </div>
                         <p className="font-body-sm text-body-sm text-outline">
-                          Your single or multi-task anchor plan that guarantees a successful day.
+                          Your non-negotiable anchor plan for deep focus.
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleOpenMorningPlanning(4)}
-                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-container hover:bg-amber-500/15 text-on-surface hover:text-amber-600 dark:hover:text-amber-400 border border-outline-variant/30 hover:border-amber-500/40 font-label-md text-label-md font-semibold transition-all shadow-xs cursor-pointer self-start sm:self-auto"
-                      title="ReDesignate today's Primary Highlight and lock plan into Firestore"
-                    >
-                      <span className="material-symbols-outlined text-[18px] text-amber-500">sync</span>
-                      <span>ReDesignate Highlight{dailyHighlightTasks.length > 1 ? "s" : ""}</span>
-                    </button>
+                    {/* Controls Toolbar: Hide/Show Completed, Delete Completed from DB, ReDesignate */}
+                    <div className="flex items-center gap-2 flex-wrap self-start lg:self-auto">
+                      {/* Hide/Show Completed Tasks Toggle */}
+                      {completedHighlights.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={toggleHideCompletedHighlights}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-label-sm font-semibold transition-all cursor-pointer shadow-xs ${
+                            hideCompletedHighlights
+                              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40"
+                              : "bg-surface-container text-on-surface hover:bg-surface-container-high border-outline-variant/30"
+                          }`}
+                          title={hideCompletedHighlights ? "Currently hiding completed tasks. Click to reveal." : "Click to hide completed tasks from view."}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">
+                            {hideCompletedHighlights ? "visibility_off" : "visibility"}
+                          </span>
+                          <span>
+                            {hideCompletedHighlights
+                              ? `Hidden (${completedHighlights.length})`
+                              : `Hide Completed (${completedHighlights.length})`}
+                          </span>
+                        </button>
+                      )}
+
+                      {/* Delete Completed Highlights from Database */}
+                      {completedHighlights.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleDeleteCompletedHighlights}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-error/10 hover:bg-error/20 text-error border border-error/30 text-label-sm font-semibold transition-all cursor-pointer shadow-xs"
+                          title="Permanently remove all completed highlight tasks from Firestore database"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
+                          <span>Delete Completed</span>
+                        </button>
+                      )}
+
+                      {/* ReDesignate Highlights Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMorningPlanning(4)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-surface-container hover:bg-amber-500/15 text-on-surface hover:text-amber-600 dark:hover:text-amber-400 border border-outline-variant/30 hover:border-amber-500/40 font-label-md text-label-md font-semibold transition-all shadow-xs cursor-pointer"
+                        title="ReDesignate today's Primary Highlights and lock plan into Firestore"
+                      >
+                        <span className="material-symbols-outlined text-[18px] text-amber-500">sync</span>
+                        <span>Reload</span>
+                      </button>
+                    </div>
                   </div>
 
+                  {/* Empty state: No highlights designated yet */}
                   {dailyHighlightTasks.length === 0 ? (
                     <div className="p-4 rounded-xl bg-surface-container-lowest/80 border border-dashed border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
                       <div className="flex items-center gap-3">
@@ -1782,25 +1941,73 @@ export default function Dashboard() {
                         <span>Designate Highlight</span>
                       </button>
                     </div>
+                  ) : hideCompletedHighlights && displayedHighlights.length === 0 ? (
+                    /* All highlights completed & hidden celebratory card */
+                    <div className="p-4 sm:p-5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-surface-container-lowest to-amber-500/10 border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0 shadow-xs">
+                          <span className="material-symbols-outlined text-[24px]">verified</span>
+                        </div>
+                        <div>
+                          <p className="font-headline-sm text-sm sm:text-base font-bold text-on-surface flex items-center justify-center sm:justify-start gap-1.5">
+                            <span>All Highlights Completed!</span>
+                            <span className="text-emerald-500">🎉</span>
+                          </p>
+                          <p className="font-body-sm text-outline text-[12px]">
+                            {completedHighlights.length} completed task{completedHighlights.length > 1 ? "s" : ""} hidden. Purge them from the database or pick fresh targets.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end">
+                        <button
+                          type="button"
+                          onClick={toggleHideCompletedHighlights}
+                          className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface hover:bg-surface-container-high border border-outline-variant/30 text-label-sm font-semibold transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">visibility</span>
+                          <span>Show Completed ({completedHighlights.length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteCompletedHighlights}
+                          className="px-3 py-1.5 rounded-lg bg-error/10 hover:bg-error/20 text-error border border-error/30 text-label-sm font-semibold transition-all cursor-pointer flex items-center gap-1"
+                          title="Permanently remove completed highlights from database"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">delete_sweep</span>
+                          <span>Delete from DB</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMorningPlanning(4)}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500 text-stone-900 font-label-sm font-bold hover:bg-amber-400 transition-colors cursor-pointer shadow-xs flex items-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">add_task</span>
+                          <span>Add More</span>
+                        </button>
+                      </div>
+                    </div>
                   ) : (
+                    /* Grid of displayed highlight cards */
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                      {dailyHighlightTasks.map((t) => (
+                      {displayedHighlights.map((t) => (
                         <div
                           key={t.id}
-                          className={`p-3 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                          className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-3 group relative ${
                             t.completed
-                              ? "bg-surface-container/40 border-outline-variant/20 opacity-80"
-                              : "bg-surface-container-lowest border-amber-500/30 shadow-xs hover:border-amber-500/60"
+                              ? "bg-surface-container/30 border-outline-variant/20 opacity-75 hover:opacity-100"
+                              : "bg-surface-container-lowest border-amber-500/30 shadow-xs hover:border-amber-500/60 hover:shadow-sm"
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-start gap-2.5 min-w-0">
+                            {/* Checkbox and Title */}
+                            <div className="flex items-start gap-2.5 min-w-0 flex-1">
                               <button
                                 type="button"
                                 onClick={() => toggleTaskCompletion(t.id)}
                                 className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center cursor-pointer transition-all flex-shrink-0 ${
                                   t.completed
-                                    ? "bg-secondary text-on-secondary"
+                                    ? "bg-emerald-600 text-white shadow-xs"
                                     : "bg-surface-container text-transparent hover:bg-primary/10 border border-outline-variant"
                                 }`}
                                 title={t.completed ? "Mark incomplete" : "Mark completed"}
@@ -1809,48 +2016,90 @@ export default function Dashboard() {
                                   check
                                 </span>
                               </button>
-                              <div className="min-w-0">
-                                <span className={`font-body-sm block truncate font-semibold ${t.completed ? "line-through text-outline" : "text-on-surface"}`}>
+                              <div className="min-w-0 flex-1">
+                                <span className={`font-body-sm block truncate font-semibold transition-colors ${t.completed ? "line-through text-outline" : "text-on-surface"}`}>
                                   {t.title}
                                 </span>
                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                   {t.priority && (
-                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant uppercase">
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant uppercase tracking-wider">
                                       {t.priority}
                                     </span>
                                   )}
                                   <span className="text-[11px] font-tabular-mono text-outline">
                                     {t.duration || "30m"}
                                   </span>
+                                  {t.completed && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                                      Done
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => toggleDailyHighlight(t.id)}
-                              className="p-1 rounded-md text-amber-500 hover:bg-amber-500/15 transition-colors cursor-pointer shrink-0"
-                              title="Toggle Primary Highlight status"
-                            >
-                              <span className="material-symbols-outlined text-[18px] fill-1">star</span>
-                            </button>
+                            {/* Card Header Actions: Star Highlight Toggle & Delete from Database Button */}
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleDailyHighlight(t.id)}
+                                className="p-1 rounded-lg text-amber-500 hover:bg-amber-500/15 transition-colors cursor-pointer"
+                                title="Toggle Primary Highlight status"
+                              >
+                                <span className="material-symbols-outlined text-[18px] fill-1">star</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteHighlight(e, t)}
+                                className="p-1 rounded-lg text-outline hover:text-error hover:bg-error/10 transition-colors cursor-pointer opacity-70 group-hover:opacity-100"
+                                title="Delete task permanently from database"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="flex items-center justify-between pt-1 border-t border-outline-variant/10 text-[11px]">
-                            <span className="text-outline font-label-sm">
-                              {t.completed ? "✅ Completed" : "⚡ In Progress"}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                resetTimer();
-                                startTimer();
-                              }}
-                              className="text-primary hover:underline font-semibold flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">play_circle</span>
-                              <span>Focus</span>
-                            </button>
+                          {/* Card Footer Bar */}
+                          <div className="flex items-center justify-between pt-2 border-t border-outline-variant/15 text-[11px]">
+                            <div className="flex items-center gap-1.5 text-outline font-label-sm">
+                              {t.completed ? (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                                  <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                                  <span>Completed</span>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                                  <span className="material-symbols-outlined text-[14px]">bolt</span>
+                                  <span>In Progress</span>
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {t.completed && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteHighlight(e, t)}
+                                  className="text-error hover:underline font-semibold flex items-center gap-0.5 cursor-pointer text-[11px]"
+                                  title="Delete this completed task from database"
+                                >
+                                  <span className="material-symbols-outlined text-[13px]">delete_forever</span>
+                                  <span>Delete</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  resetTimer();
+                                  startTimer();
+                                }}
+                                className="text-primary hover:underline font-semibold flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">play_circle</span>
+                                <span>Focus</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2364,8 +2613,8 @@ export default function Dashboard() {
                         Active Session
                       </span>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-tabular-mono text-label-sm font-semibold">
-                      Block {Math.min(completedBlocks, targetBlocks)}/{targetBlocks}
+                    <span className="px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-tabular-mono text-label-sm font-semibold">
+                      Block {completedBlocks} of {targetBlocks}
                     </span>
                   </div>
 
@@ -2434,6 +2683,18 @@ export default function Dashboard() {
                       </button>
 
                       <button
+                        onClick={() => {
+                          incrementCompletedBlocks(1);
+                          resetTimer();
+                        }}
+                        className="p-2.5 rounded-full bg-secondary-container hover:bg-secondary-container/80 text-on-secondary-container transition-all cursor-pointer shadow-xs"
+                        title="Complete Session & Log Focus Block (+1)"
+                        type="button"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                      </button>
+
+                      <button
                         onClick={() => resetTimer()}
                         className="p-2.5 rounded-full bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors cursor-pointer"
                         title="Reset Session"
@@ -2458,6 +2719,20 @@ export default function Dashboard() {
                       <span className="font-tabular-mono text-label-sm text-secondary font-semibold">
                         {habits.filter((h) => h.done).length} of {habits.length} done
                       </span>
+                      <button
+                        onClick={async () => {
+                          if (runDailyRolloverAndReset) {
+                            await runDailyRolloverAndReset(true);
+                            setToastMessage("Daily rituals & habits reset for today");
+                            setTimeout(() => setToastMessage(null), 3000);
+                          }
+                        }}
+                        className="w-6 h-6 rounded-md flex items-center justify-center text-outline hover:text-secondary hover:bg-surface-container transition-colors cursor-pointer"
+                        title="Force daily reset for rituals & habits"
+                        type="button"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                      </button>
                       <button
                         onClick={() => setShowHabitManagerModal(true)}
                         className="px-2 py-1 rounded-md text-[11px] font-semibold bg-secondary/10 hover:bg-secondary/20 text-secondary transition-colors cursor-pointer flex items-center gap-1 border border-secondary/20"
