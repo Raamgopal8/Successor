@@ -76,7 +76,10 @@ export default function Board() {
     });
   };
 
-  const completedTasksList = tasks.filter((t) => t.status === "completed" || t.completed);
+  // Safe task array normalization
+  const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
+
+  const completedTasksList = safeTasks.filter((t) => t.status === "completed" || t.completed);
 
   const handleDeleteCompletedTasks = async () => {
     if (completedTasksList.length === 0) return;
@@ -152,7 +155,7 @@ export default function Board() {
   }, [authLoading, currentUser, navigate]);
 
   // Selected Task reference
-  const selectedTask = tasks.find((t) => t.id === selectedTaskId) || tasks[0] || null;
+  const selectedTask = safeTasks.find((t) => t.id === selectedTaskId) || safeTasks[0] || null;
 
   // Power user keyboard shortcuts (C, X, Space, 1-3, F, ?)
   useKeyboardShortcuts({
@@ -413,7 +416,7 @@ export default function Board() {
   };
 
   // Filter tasks
-  const filteredTasks = tasks.filter((t) => {
+  const filteredTasks = safeTasks.filter((t) => {
     if (trimmedQuery) {
       const matchTitle = t.title?.toLowerCase().includes(trimmedQuery);
       const matchTag =

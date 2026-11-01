@@ -130,6 +130,89 @@ const INITIAL_HABITS = [
   { title: "Evening async review & triage", duration: "15m", done: false, cadence: "daily", streak: 4, bestStreak: 9, streakShields: 2 },
 ];
 
+export const INITIAL_TASKS = [
+  {
+    id: "sample-1",
+    code: "FF-1042",
+    title: "Finalize Executive Q3 Roadmapping",
+    description: "Align quarterly milestones, resource allocation, and key OKRs with senior stakeholders.",
+    status: "ready",
+    completed: false,
+    priority: "P1 Urgent & High Impact",
+    category: "Work Sprint",
+    duration: "45 min",
+    effort: "⚡⚡⚡ Deep Focus",
+    tags: ["#Roadmap", "#Leadership", "#Strategy"],
+    subtasks: "2/3",
+    isHighlight: true,
+    date: "Today",
+  },
+  {
+    id: "sample-2",
+    code: "FF-1089",
+    title: "Review Design Token System Architecture",
+    description: "Verify contrast ratios, responsive spacing, and dark/light mode token continuity across components.",
+    status: "ready",
+    completed: false,
+    priority: "P2 Strategic",
+    category: "Deep Work",
+    duration: "30 min",
+    effort: "⚡⚡ Moderate Effort",
+    tags: ["#DesignSystem", "#A11y"],
+    subtasks: "1/2",
+    isHighlight: false,
+    date: "Today",
+  },
+  {
+    id: "sample-3",
+    code: "FF-1120",
+    title: "Database Sync Performance Optimization",
+    description: "Audit Firestore subscriptions and query indexes to eliminate server latency.",
+    status: "in_progress",
+    completed: false,
+    priority: "P1 Urgent & High Impact",
+    category: "Work Sprint",
+    duration: "60 min",
+    effort: "⚡⚡⚡ Deep Focus",
+    tags: ["#Architecture", "#Performance"],
+    subtasks: "3/4",
+    isHighlight: false,
+    date: "Today",
+  },
+  {
+    id: "sample-4",
+    code: "FF-1145",
+    title: "Desktop Auto-Updater Pipeline Verification",
+    description: "Validate GitHub Actions release workflow and cryptographic signing keys for Tauri.",
+    status: "backlog",
+    completed: false,
+    priority: "P2 Strategic",
+    category: "Admin",
+    duration: "25 min",
+    effort: "⚡ Light Effort",
+    tags: ["#DevOps", "#Tauri"],
+    subtasks: "0/1",
+    isHighlight: false,
+    date: "Backlog",
+  },
+  {
+    id: "sample-5",
+    code: "FF-1160",
+    title: "Circadian Rhythm Flow Diagnostics",
+    description: "Review focus block completion analytics and adjust lark/owl peak interval schedules.",
+    status: "backlog",
+    completed: false,
+    priority: "P3 Maintenance",
+    category: "Health & Habits",
+    duration: "15 min",
+    effort: "⚡ Light Effort",
+    tags: ["#Productivity", "#Habits"],
+    subtasks: "1/1",
+    isHighlight: false,
+    date: "Backlog",
+  },
+];
+
 export function AppProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -137,11 +220,31 @@ export function AppProvider({ children }) {
   // Real-time Firestore user profile
   const [userProfile, setUserProfile] = useState(null);
 
-  // Real-time Firestore tasks & habits
-  const [tasks, setTasks] = useState([]);
+  // Real-time Firestore tasks & habits (Guaranteed array states with local cache fallback)
+  const [tasks, setTasks] = useState(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const cached = localStorage.getItem("successor_cached_tasks");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch (_) {}
+    return INITIAL_TASKS;
+  });
   const [habits, setHabits] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [loadingHabits, setLoadingHabits] = useState(true);
+
+  // Sync tasks to local cache on change
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && Array.isArray(tasks) && tasks.length > 0) {
+        localStorage.setItem("successor_cached_tasks", JSON.stringify(tasks));
+      }
+    } catch (_) {}
+  }, [tasks]);
 
   // Global Focus Session Timer
   const [timerSeconds, setTimerSeconds] = useState(25 * 60);
@@ -243,45 +346,76 @@ export function AppProvider({ children }) {
     return () => unsub();
   }, [currentUser]);
 
-  // 3. Real-time Tasks collection sync
+  // 3. Real-time Tasks collection sync (with resilient fallback to avoid blank server error state)
   useEffect(() => {
     if (!currentUser) {
-      setTasks([]);
+      setTasks((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : INITIAL_TASKS));
       setLoadingTasks(false);
       return;
     }
 
-    const q = query(
-      collection(db, "users", currentUser.uid, "tasks"),
-      orderBy("createdAt", "desc")
-    );
+    // Try query collection directly
+    const tasksCollectionRef = collection(db, "users", currentUser.uid, "tasks");
 
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const cloudTasks = snapshot.docs.map((d) => {
-          const data = d.data();
-          const isCompleted = !!data.completed;
-          const status = data.status || (isCompleted ? "completed" : "ready");
-          return {
-            id: d.id,
-            code: data.code || `FF-${d.id.slice(0, 4).toUpperCase()}`,
-            status,
-            completed: isCompleted,
-            ...data,
-          };
-        });
-        setTasks(cloudTasks);
-        setLoadingTasks(false);
-      },
-      (err) => {
-        console.warn("Tasks sync error:", err);
-        setTasks([]);
-        setLoadingTasks(false);
-      }
-    );
+    const setupListener = (useOrdering = true) => {
+      const q = useOrdering
+        ? query(tasksCollectionRef, orderBy("createdAt", "desc"))
+        : query(tasksCollectionRef);
 
-    return () => unsub();
+      return onSnapshot(
+        q,
+        async (snapshot) => {
+          if (!snapshot.empty) {
+            const cloudTasks = snapshot.docs.map((d) => {
+              const data = d.data();
+              const isCompleted = !!data.completed;
+              const status = data.status || (isCompleted ? "completed" : "ready");
+              return {
+                id: d.id,
+                code: data.code || `FF-${d.id.slice(0, 4).toUpperCase()}`,
+                status,
+                completed: isCompleted,
+                ...data,
+              };
+            });
+            setTasks(cloudTasks);
+            setLoadingTasks(false);
+          } else {
+            // First time user: Seed INITIAL_TASKS into Firestore
+            try {
+              for (const sample of INITIAL_TASKS) {
+                const { id: _ignoreId, ...rest } = sample;
+                await addDoc(tasksCollectionRef, {
+                  ...rest,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            } catch (err) {
+              console.warn("Could not seed initial tasks to server:", err);
+              setTasks(INITIAL_TASKS);
+            }
+            setLoadingTasks(false);
+          }
+        },
+        (err) => {
+          console.warn("Tasks sync error (attempting fallback):", err);
+          if (useOrdering) {
+            // If orderBy failed (e.g. index missing), retry without ordering
+            cleanup = setupListener(false);
+          } else {
+            // Fall back to cached or default array tasks so dashboard never breaks
+            setTasks((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : INITIAL_TASKS));
+            setLoadingTasks(false);
+          }
+        }
+      );
+    };
+
+    let cleanup = setupListener(true);
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, [currentUser]);
 
   // 4. Real-time Habits collection sync
@@ -969,7 +1103,7 @@ export function AppProvider({ children }) {
         syncDailyStreak(nextTasks, false);
       }
 
-      if (currentUser && taskId && !taskId.startsWith("local-") && !taskId.startsWith("board-")) {
+      if (currentUser && taskId && !taskId.startsWith("local-") && !taskId.startsWith("board-") && !taskId.startsWith("sample-")) {
         try {
           const ref = doc(db, "users", currentUser.uid, "tasks", taskId);
           await updateDoc(ref, updates);
@@ -978,7 +1112,7 @@ export function AppProvider({ children }) {
         }
       }
     },
-    [tasks, currentUser, syncDailyStreak]
+    [tasks, currentUser, syncDailyStreak, recordTaskCompleted]
   );
 
   // Toggle / ReDesignate Daily Highlight (Single or Multi-Task non-negotiable objective)
@@ -1322,27 +1456,29 @@ export function AppProvider({ children }) {
   }, []);
 
   // 9. Computed Live Metrics & Velocity (preserves completed count even if completed tasks are deleted)
+  const taskList = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
+
   const completedTasksCount = useMemo(() => {
-    const activeCompleted = tasks.filter((t) => t.completed || t.status === "completed").length;
+    const activeCompleted = taskList.filter((t) => t.completed || t.status === "completed").length;
     const lifetimeCount = Number(
       userProfile?.lifetimeCompletedTasksCount ??
       (typeof window !== "undefined" ? localStorage.getItem("successor_lifetime_completed_count") : 0) ??
       0
     );
     return Math.max(activeCompleted, lifetimeCount);
-  }, [tasks, userProfile?.lifetimeCompletedTasksCount]);
-  const activeTasksCount = useMemo(() => tasks.filter((t) => !t.completed).length, [tasks]);
-  const totalTasksCount = useMemo(() => tasks.length, [tasks]);
+  }, [taskList, userProfile?.lifetimeCompletedTasksCount]);
+  const activeTasksCount = useMemo(() => taskList.filter((t) => !t.completed).length, [taskList]);
+  const totalTasksCount = useMemo(() => taskList.length, [taskList]);
 
   const highImpactCount = useMemo(
-    () => tasks.filter((t) => t.category === "high-impact" || t.effort?.includes("Deep")).length,
-    [tasks]
+    () => taskList.filter((t) => t.category === "high-impact" || t.effort?.includes("Deep")).length,
+    [taskList]
   );
 
   const dailyHighlightTasks = useMemo(() => {
     const highlightIds = new Set(userProfile?.dailyHighlightTaskIds || []);
-    return tasks.filter((t) => t.isHighlight || highlightIds.has(t.id));
-  }, [tasks, userProfile?.dailyHighlightTaskIds]);
+    return taskList.filter((t) => t.isHighlight || highlightIds.has(t.id));
+  }, [taskList, userProfile?.dailyHighlightTaskIds]);
 
   const habitsCount = useMemo(() => habits.length, [habits]);
   const completedHabitsCount = useMemo(() => habits.filter((h) => h.done).length, [habits]);
@@ -1391,7 +1527,7 @@ export function AppProvider({ children }) {
   const deepWorkHours = useMemo(() => {
     const blockMins = parseInt(userProfile?.focusDuration || "25", 10) || 25;
     const blocksHours = ((userProfile?.completedBlocks || 0) * blockMins) / 60;
-    const deepTaskHours = tasks
+    const deepTaskHours = taskList
       .filter(
         (t) =>
           t.completed &&
@@ -1402,7 +1538,7 @@ export function AppProvider({ children }) {
       .reduce((sum, t) => sum + parseDurationHours(t.duration), 0);
     const totalHours = blocksHours + deepTaskHours;
     return Number(totalHours.toFixed(1));
-  }, [userProfile?.completedBlocks, userProfile?.focusDuration, tasks, parseDurationHours]);
+  }, [userProfile?.completedBlocks, userProfile?.focusDuration, taskList, parseDurationHours]);
 
   // On-time completion rate from real tasks
   const onTimeRate = useMemo(() => {
@@ -1413,7 +1549,7 @@ export function AppProvider({ children }) {
 
   // Category distribution for Analytics based on live Firestore tasks
   const categoryBreakdown = useMemo(() => {
-    const total = tasks.length;
+    const total = taskList.length;
     let designCount = 0;
     let techCount = 0;
     let habitCount = 0;
@@ -1424,7 +1560,7 @@ export function AppProvider({ children }) {
     let habitHours = 0;
     let adminHours = 0;
 
-    tasks.forEach((t) => {
+    taskList.forEach((t) => {
       const cat = (t.category || "").toLowerCase();
       const dur = parseDurationHours(t.duration);
 
@@ -1462,7 +1598,7 @@ export function AppProvider({ children }) {
       habit: { pct: habitPct, count: habitCount, hours: habitHours.toFixed(1) },
       admin: { pct: adminPct, count: adminCount, hours: adminHours.toFixed(1) },
     };
-  }, [tasks, parseDurationHours]);
+  }, [taskList, parseDurationHours]);
 
   // Weekly Rhythm aggregated for Analytics chart from real task completions/activity
   const weeklyRhythmData = useMemo(() => {
@@ -1471,7 +1607,7 @@ export function AppProvider({ children }) {
     const dayHours = [0, 0, 0, 0, 0, 0, 0];
 
     // Distribute actual tasks by day
-    tasks.forEach((t) => {
+    taskList.forEach((t) => {
       const d = getTaskDate(t);
       let dayIdx = 0;
       if (d) {
@@ -1498,7 +1634,7 @@ export function AppProvider({ children }) {
       const y = 170 - height;
       return { day, tasks: taskCount, hours, isPeak, height, y };
     });
-  }, [tasks, getTaskDate, parseDurationHours]);
+  }, [taskList, getTaskDate, parseDurationHours]);
 
   // 10. Daily Rollover & Counter Resets
   const rolloverInProgressRef = useRef(false);

@@ -150,13 +150,15 @@ export default function Analytics() {
   }, []);
 
   // Filter tasks dynamically by selected date range
+  const safeTaskList = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
+
   const filteredTasks = useMemo(() => {
-    if (!tasks || tasks.length === 0) return [];
+    if (!safeTaskList || safeTaskList.length === 0) return [];
     const now = new Date();
 
     if (selectedRange === "Last 7 Days (Real-time)") {
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return tasks.filter((t) => {
+      return safeTaskList.filter((t) => {
         const d = getTaskDate ? getTaskDate(t) : null;
         return !d || d >= sevenDaysAgo;
       });

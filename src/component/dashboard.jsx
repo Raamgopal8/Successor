@@ -85,6 +85,20 @@ export default function Dashboard() {
   const [showZenDeck, setShowZenDeck] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [taskViewMode, setTaskViewMode] = useState(() => {
+    try {
+      return localStorage.getItem("successor_task_view_mode") || "arrays";
+    } catch (_) {
+      return "arrays";
+    }
+  });
+
+  const handleSetTaskViewMode = (mode) => {
+    setTaskViewMode(mode);
+    try {
+      localStorage.setItem("successor_task_view_mode", mode);
+    } catch (_) {}
+  };
 
   // Phase 2 Features: Auto-Rescheduling Assistant & Habit Streaks Engine
   const [showHabitManagerModal, setShowHabitManagerModal] = useState(false);
@@ -192,6 +206,22 @@ export default function Dashboard() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Safe helper to render subtasks (handles string "1/3", array of objects [{completed, id, duration, title}], or numbers)
+  const formatSubtasks = (subtasks) => {
+    if (!subtasks) return null;
+    if (typeof subtasks === "string" || typeof subtasks === "number") return String(subtasks);
+    if (Array.isArray(subtasks)) {
+      if (subtasks.length === 0) return null;
+      const completedCount = subtasks.filter((st) => st && (st.completed || st.done)).length;
+      return `${completedCount}/${subtasks.length}`;
+    }
+    if (typeof subtasks === "object") {
+      if (subtasks.title) return String(subtasks.title);
+      return "1 item";
+    }
+    return null;
+  };
 
   // Search bar & keyword suggestions state
   const [searchQuery, setSearchQuery] = useState("");
@@ -609,9 +639,12 @@ export default function Dashboard() {
     }
   };
 
+  // Safe array normalization so tasks is guaranteed to be an iterable array
+  const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
+
   // Filter tasks to show ONLY pending today's and backlog tasks (remove completed and other tasks)
   const pendingTasks = useMemo(() => {
-    return tasks.filter((t) => {
+    return safeTasks.filter((t) => {
       // Exclude completed tasks
       if (t.completed || t.status === "completed") return false;
 
@@ -620,7 +653,7 @@ export default function Dashboard() {
       const isToday = !isBacklog;
       return isToday || isBacklog;
     });
-  }, [tasks]);
+  }, [safeTasks]);
 
   const pendingTodayTasks = useMemo(() => {
     return pendingTasks.filter((t) => t.status !== "backlog" && t.date !== "Backlog");
@@ -663,7 +696,52 @@ export default function Dashboard() {
     });
   }, [pendingTasks, activeFilter, trimmedQuery]);
 
-  const completedCount = tasks.filter((t) => t.completed).length;
+  // Structured Task Arrays: Group tasks by Priority Array, Status Array, and Flow Array
+  const taskArrays = useMemo(() => {
+    const p1UrgentArray = filteredTasks.filter(
+      (t) => t.priority?.includes("P1") || t.priority?.includes("Urgent") || t.isHighlight
+    );
+    const p2StrategicArray = filteredTasks.filter(
+      (t) => (t.priority?.includes("P2") || t.priority?.includes("Strategic")) && !t.isHighlight
+    );
+    const p3RoutineArray = filteredTasks.filter(
+      (t) =>
+        !t.priority?.includes("P1") &&
+        !t.priority?.includes("Urgent") &&
+        !t.priority?.includes("P2") &&
+        !t.priority?.includes("Strategic") &&
+        !t.isHighlight
+    );
+
+    return [
+      {
+        id: "p1-array",
+        label: "Priority 1 • High Impact & Highlights",
+        badge: "Immediate Sprint",
+        color: "from-rose-500/20 to-amber-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400",
+        icon: "bolt",
+        tasks: p1UrgentArray,
+      },
+      {
+        id: "p2-array",
+        label: "Priority 2 • Strategic Execution",
+        badge: "Core Workflow",
+        color: "from-primary/20 to-tertiary/10 border-primary/30 text-primary",
+        icon: "track_changes",
+        tasks: p2StrategicArray,
+      },
+      {
+        id: "p3-array",
+        label: "Priority 3 • Routine & Maintenance",
+        badge: "Flexible Queue",
+        color: "from-surface-container to-surface-container-high border-outline-variant/30 text-outline",
+        icon: "format_list_bulleted",
+        tasks: p3RoutineArray,
+      },
+    ].filter((group) => group.tasks.length > 0);
+  }, [filteredTasks]);
+
+  const completedCount = safeTasks.filter((t) => t.completed).length;
 
   // Chronotype schedule mapping — reactive to userProfile preference
   const chronotype = (userProfile?.chronotype || "lark").toLowerCase();
@@ -2120,6 +2198,36 @@ export default function Dashboard() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* View Mode Toggle (Structured Arrays vs Stream View) */}
+                      <div className="inline-flex p-1 rounded-lg bg-surface-container-high gap-0.5 select-none shadow-xs border border-outline-variant/10">
+                        <button
+                          type="button"
+                          onClick={() => handleSetTaskViewMode("arrays")}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-label-md text-label-md transition-all cursor-pointer ${
+                            taskViewMode === "arrays"
+                              ? "bg-primary text-on-primary shadow-xs font-semibold"
+                              : "text-on-surface-variant hover:text-on-surface"
+                          }`}
+                          title="Display tasks grouped in priority arrays"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">view_agenda</span>
+                          <span>Array Matrix</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetTaskViewMode("stream")}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-label-md text-label-md transition-all cursor-pointer ${
+                            taskViewMode === "stream"
+                              ? "bg-primary text-on-primary shadow-xs font-semibold"
+                              : "text-on-surface-variant hover:text-on-surface"
+                          }`}
+                          title="Display tasks in a single stream view"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">view_stream</span>
+                          <span>Stream</span>
+                        </button>
+                      </div>
+
                       {/* Segmented Filter */}
                       <div className="inline-flex p-1 rounded-lg bg-surface-container-high gap-0.5 select-none self-start sm:self-auto">
                         {[
@@ -2180,27 +2288,243 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Task Card List */}
-                  <div className="space-y-space-sm">
-                    {loadingTasks ? (
-                      <div className="p-8 text-center text-outline">
-                        <span className="material-symbols-outlined text-2xl animate-spin text-primary">
-                          progress_activity
-                        </span>
-                        <p className="font-body-sm text-body-sm mt-2">Syncing tasks across workspaces...</p>
-                      </div>
-                    ) : filteredTasks.length === 0 ? (
-                      <div className="p-8 text-center text-outline bg-surface-container-lowest rounded-xl border border-dashed border-outline-variant/30">
-                        <span className="material-symbols-outlined text-3xl mb-1 text-primary/60">task_alt</span>
-                        <p className="font-headline-sm font-semibold text-on-surface">No pending tasks in this view</p>
-                        <p className="font-body-sm text-outline mt-1">
-                          {searchQuery.trim()
-                            ? "No pending tasks match your search keyword. Try clearing the filter or searching for another keyword."
-                            : 'All clear! Click "Plan Next Block" or create a new task to get started.'}
-                        </p>
-                      </div>
-                    ) : (
-                      filteredTasks.map((t) => (
+                  {/* Task Card Container: Displays either in Array Groups or Unified Stream */}
+                  {loadingTasks ? (
+                    <div className="p-8 text-center text-outline bg-surface-container-lowest rounded-2xl border border-outline-variant/20">
+                      <span className="material-symbols-outlined text-3xl animate-spin text-primary">
+                        progress_activity
+                      </span>
+                      <p className="font-headline-sm font-semibold text-on-surface mt-2">Syncing tasks across workspaces...</p>
+                      <p className="font-body-sm text-outline mt-0.5">Connecting to real-time server database...</p>
+                    </div>
+                  ) : filteredTasks.length === 0 ? (
+                    <div className="p-8 text-center text-outline bg-surface-container-lowest rounded-2xl border border-dashed border-outline-variant/30">
+                      <span className="material-symbols-outlined text-4xl mb-1 text-primary/60">task_alt</span>
+                      <p className="font-headline-sm font-semibold text-on-surface">No pending tasks in this view</p>
+                      <p className="font-body-sm text-outline mt-1">
+                        {searchQuery.trim()
+                          ? "No pending tasks match your search keyword. Try clearing the filter or searching for another keyword."
+                          : 'All clear! Click "Plan Next Block" or create a new task to get started.'}
+                      </p>
+                    </div>
+                  ) : taskViewMode === "arrays" && taskArrays.length > 0 ? (
+                    /* STRUCTURED ARRAYS DISPLAY */
+                    <div className="space-y-space-md">
+                      {taskArrays.map((group) => (
+                        <div
+                          key={group.id}
+                          className="rounded-2xl border border-outline-variant/15 bg-surface-container-lowest/80 backdrop-blur-md overflow-hidden shadow-xs hover:border-outline-variant/30 transition-all"
+                        >
+                          {/* Array Group Header Banner */}
+                          <div className={`px-space-md py-3 bg-gradient-to-r ${group.color} border-b flex items-center justify-between`}>
+                            <div className="flex items-center gap-2.5">
+                              <span className="material-symbols-outlined text-[20px]">{group.icon}</span>
+                              <h3 className="font-title-sm font-bold tracking-tight text-on-surface">
+                                {group.label}
+                              </h3>
+                              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-surface-container-lowest/90 text-on-surface border border-outline-variant/20 shadow-xs">
+                                {group.badge}
+                              </span>
+                            </div>
+                            <span className="text-label-sm font-bold px-2.5 py-0.5 rounded-full bg-surface-container-high/80 text-on-surface">
+                              {group.tasks.length} {group.tasks.length === 1 ? "task" : "tasks"}
+                            </span>
+                          </div>
+
+                          {/* Array Tasks List */}
+                          <div className="p-space-sm space-y-space-xs">
+                            {group.tasks.map((t) => (
+                              <div
+                                id={`task-card-${t.id}`}
+                                key={t.id}
+                                onClick={() => setSelectedTaskId(t.id)}
+                                className={`group relative p-space-md rounded-xl bg-surface-container-lowest shadow-xs hover:shadow-md transition-all flex flex-col gap-y-space-sm border cursor-pointer ${
+                                  selectedTaskId === t.id
+                                    ? "border-primary ring-2 ring-primary/20 shadow-md"
+                                    : "border-outline-variant/10 hover:border-outline-variant/30"
+                                } ${t.completed ? "opacity-75" : ""}`}
+                              >
+                                <div className="flex items-start justify-between gap-space-sm">
+                                  <div className="flex items-start gap-space-sm min-w-0">
+                                    {/* Interactive Checkbox */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleTaskCompletion(t.id);
+                                      }}
+                                      className={`mt-1 w-5 h-5 rounded-md flex items-center justify-center cursor-pointer transition-all flex-shrink-0 group/chk ${
+                                        t.completed
+                                          ? "bg-secondary text-on-secondary"
+                                          : "bg-surface-container-lowest text-transparent hover:text-primary hover:bg-primary/10 border border-outline-variant"
+                                      }`}
+                                      title="Mark task completed"
+                                      type="button"
+                                    >
+                                      <span
+                                        className={`material-symbols-outlined text-[16px] ${
+                                          t.completed ? "opacity-100" : "opacity-0 group-hover/chk:opacity-100"
+                                        }`}
+                                      >
+                                        check
+                                      </span>
+                                    </button>
+
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-space-xs flex-wrap">
+                                        {t.isHighlight && (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-400 font-label-sm text-[11px] font-bold shadow-xs">
+                                            <span className="material-symbols-outlined text-[13px] fill-1 text-amber-500">star</span>
+                                            Primary Highlight
+                                          </span>
+                                        )}
+                                        {t.priority && (() => {
+                                          const pStyle = getLabelStyle(t.priority);
+                                          return (
+                                            <span
+                                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-label-sm text-[11px] font-bold border ${pStyle.bg} ${pStyle.border}`}
+                                            >
+                                              <span className={`w-1.5 h-1.5 rounded-full ${pStyle.dot}`} />
+                                              {t.priority}
+                                            </span>
+                                          );
+                                        })()}
+                                        {t.category && (() => {
+                                          const cStyle = getLabelStyle(t.category);
+                                          return (
+                                            <span
+                                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-label-sm text-[11px] font-medium border ${cStyle.bg} ${cStyle.border}`}
+                                            >
+                                              {t.category}
+                                            </span>
+                                          );
+                                        })()}
+                                        {t.duration && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm font-medium">
+                                            <span className="material-symbols-outlined text-[13px] text-tertiary">
+                                              schedule
+                                            </span>
+                                            {t.duration}
+                                          </span>
+                                        )}
+                                        {t.effort && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm font-medium">
+                                            {t.effort}
+                                          </span>
+                                        )}
+                                        {t.status === "backlog" && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container-high text-outline font-label-sm text-label-sm font-medium">
+                                            Backlog
+                                          </span>
+                                        )}
+                                        {(t.rolledOverAt || t.rolloverDate) && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 font-label-sm text-label-sm font-semibold">
+                                            <span className="material-symbols-outlined text-[13px]">history</span>
+                                            Rolled Over
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <h3
+                                        className={`font-headline-sm text-headline-sm mt-1.5 leading-snug font-semibold ${
+                                          t.completed ? "line-through text-outline" : "text-on-surface"
+                                        }`}
+                                      >
+                                        {t.title}
+                                      </h3>
+                                      <p className="font-body-sm text-body-sm text-on-surface-variant line-clamp-1 mt-0.5">
+                                        {t.description}
+                                      </p>
+                                      <RolloverDiagnosticBanner task={t} className="mt-2.5" />
+                                    </div>
+                                  </div>
+
+                                  {/* Quick action icons */}
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleDailyHighlight(t.id);
+                                      }}
+                                      className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                        t.isHighlight
+                                          ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25 border border-amber-500/30"
+                                          : "bg-surface-container hover:bg-amber-500/10 text-on-surface-variant hover:text-amber-500"
+                                      }`}
+                                      title={t.isHighlight ? "Remove Primary Highlight status" : "Designate as Today's Primary Highlight"}
+                                      type="button"
+                                    >
+                                      <span className={`material-symbols-outlined text-[18px] ${t.isHighlight ? "fill-1" : ""}`}>
+                                        {t.isHighlight ? "star" : "star_outline"}
+                                      </span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => {
+                                        resetTimer();
+                                        startTimer();
+                                      }}
+                                      className="p-2 rounded-lg bg-primary-fixed hover:bg-primary-container text-on-primary-fixed hover:text-on-primary-container transition-colors cursor-pointer"
+                                      title="Start Focus Block for Task"
+                                      type="button"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleStartEdit(t)}
+                                      className="p-2 rounded-lg bg-surface-container hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                                      title="Edit Task"
+                                      type="button"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => setTaskToDelete(t)}
+                                      className="p-2 rounded-lg bg-surface-container hover:bg-error-container text-on-surface-variant hover:text-error transition-colors cursor-pointer"
+                                      title="Delete Task"
+                                      type="button"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Task Footer Meta */}
+                                <div className="flex items-center justify-between pt-space-xs">
+                                  <div className="flex items-center gap-space-sm flex-wrap">
+                                    {t.tags?.map((tg, i) => (
+                                      <span
+                                        key={i}
+                                        className="font-tabular-mono text-label-sm text-primary font-medium bg-primary/10 px-2 py-0.5 rounded"
+                                      >
+                                        {tg}
+                                      </span>
+                                    ))}
+                                    {formatSubtasks(t.subtasks) && (
+                                      <div className="flex items-center gap-1 text-outline font-label-sm text-label-sm">
+                                        <span className="material-symbols-outlined text-[15px]">checklist</span>
+                                        <span>{formatSubtasks(t.subtasks)}</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {t.completed && (
+                                    <span className="font-label-sm text-label-sm text-secondary font-semibold px-2 py-1 bg-secondary-container/30 rounded">
+                                      Completed
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    /* UNIFIED STREAM DISPLAY */
+                    <div className="space-y-space-sm">
+                      {filteredTasks.map((t) => (
                         <div
                           id={`task-card-${t.id}`}
                           key={t.id}
@@ -2209,9 +2533,7 @@ export default function Dashboard() {
                             selectedTaskId === t.id
                               ? "border-primary ring-2 ring-primary/20 shadow-md"
                               : "border-outline-variant/10"
-                          } ${
-                            t.completed ? "opacity-75" : ""
-                          }`}
+                          } ${t.completed ? "opacity-75" : ""}`}
                         >
                           <div className="flex items-start justify-between gap-space-sm">
                             <div className="flex items-start gap-space-sm min-w-0">
@@ -2370,10 +2692,10 @@ export default function Dashboard() {
                                   {tg}
                                 </span>
                               ))}
-                              {t.subtasks && (
+                              {formatSubtasks(t.subtasks) && (
                                 <div className="flex items-center gap-1 text-outline font-label-sm text-label-sm">
                                   <span className="material-symbols-outlined text-[15px]">checklist</span>
-                                  <span>{t.subtasks}</span>
+                                  <span>{formatSubtasks(t.subtasks)}</span>
                                 </div>
                               )}
                             </div>
@@ -2385,9 +2707,9 @@ export default function Dashboard() {
                             )}
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
 
                 {/* DAILY RHYTHM TIMELINE */}
