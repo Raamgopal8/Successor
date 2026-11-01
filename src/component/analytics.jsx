@@ -43,7 +43,7 @@ export default function Analytics() {
 
   // Date Range state
   const dateRanges = [
-    "Current Sprint (Active Cycle)",
+    "Current Goal Cycle (Active)",
     "Last 7 Days (Real-time)",
     "Last 30 Days (Real-time)",
     "All Time (Real-time)",
@@ -172,7 +172,7 @@ export default function Analytics() {
       });
     }
 
-    if (selectedRange === "Current Sprint (Active Cycle)") {
+    if (selectedRange === "Current Goal Cycle (Active)") {
       const startOfWeek = new Date(now);
       const day = startOfWeek.getDay();
       const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
@@ -205,17 +205,18 @@ export default function Analytics() {
       .filter(
         (t) =>
           t.completed &&
-          (t.category === "high-impact" ||
+          (t.category === "Daily Focus" ||
+            t.category === "Goal" ||
+            t.category === "high-impact" ||
             t.effort?.includes("Deep") ||
-            t.category?.toLowerCase().includes("design") ||
             t.priority?.includes("P1"))
       )
       .reduce((sum, t) => sum + (parseDurationHours ? parseDurationHours(t.duration) : 0.5), 0);
     return Number((blocksHours + taskHours).toFixed(1));
   }, [filteredTasks, userProfile?.completedBlocks, userProfile?.focusDuration, parseDurationHours]);
 
-  // Sprint target hours based on user's focus configuration or custom weekly target
-  const sprintTargetHours = useMemo(() => {
+  // Weekly focus target hours based on user's focus configuration or custom weekly target
+  const weeklyFocusTargetHours = useMemo(() => {
     if (userProfile?.weeklyTargetHours) {
       return Number(Number(userProfile.weeklyTargetHours).toFixed(1));
     }
@@ -224,12 +225,12 @@ export default function Analytics() {
     return Number(Math.max(1, ((dailyTargetBlocks * blockMins) / 60) * 5).toFixed(1));
   }, [userProfile?.focusDuration, userProfile?.dailyTargetBlocks, userProfile?.weeklyTargetHours]);
 
-  // Keep slider synchronized with active sprint target
+  // Keep slider synchronized with active focus target
   useEffect(() => {
-    if (sprintTargetHours) {
-      setSliderTargetHours(sprintTargetHours);
+    if (weeklyFocusTargetHours) {
+      setSliderTargetHours(weeklyFocusTargetHours);
     }
-  }, [sprintTargetHours]);
+  }, [weeklyFocusTargetHours]);
 
   // Adjust weekly target capacity directly from the dashboard without navigating to Profile
   const handleUpdateTargetCapacity = async (newHours) => {
@@ -611,21 +612,22 @@ export default function Analytics() {
       currentMinutes += 15;
 
       let color = "primary";
-      if (t.category === "high-impact" || t.priority?.includes("P1")) color = "secondary";
-      else if (t.category?.toLowerCase().includes("tech") || t.category?.toLowerCase().includes("arch")) color = "tertiary";
-      else if (t.category?.toLowerCase().includes("quick") || t.priority?.includes("P2")) color = "amber";
+      const cat = (t.category || "").toLowerCase();
+      if (cat.includes("personal") || t.priority?.includes("P1")) color = "secondary";
+      else if (cat.includes("career") || cat.includes("long term")) color = "tertiary";
+      else if (cat.includes("daily") || t.priority?.includes("P2")) color = "amber";
 
       events.push({
         id: `gcal-${t.id || idx}`,
         title: t.title || "Untitled Task",
-        category: t.category || "Sprint Task",
+        category: t.category || "Goal",
         startTime: start,
         endTime: end,
         duration: t.duration || `${durMins}m`,
         color,
         syncedWithGCal: true,
-        source: t.completed ? "Google Calendar (Done)" : "Successor Sprint Queue",
-        isAnchor: t.category === "high-impact" || t.priority?.includes("P1"),
+        source: t.completed ? "Google Calendar (Done)" : "Successor Goal Queue",
+        isAnchor: cat.includes("daily") || t.priority?.includes("P1") || t.effort?.includes("Deep"),
         completed: !!t.completed,
         taskRef: t,
       });
@@ -682,7 +684,7 @@ export default function Analytics() {
       if (count >= 5 || completedOnDay >= 4) {
         level = "peak";
         icon = "bolt";
-        note = `${completedOnDay} completed • Peak Focus Sprint${isScheduledRestDay ? " (Rest Day Bonus)" : ""}`;
+        note = `${completedOnDay} completed • Peak Daily Focus${isScheduledRestDay ? " (Rest Day Bonus)" : ""}`;
       } else if (count >= 3 || completedOnDay >= 2) {
         level = "high";
         icon = "star";
@@ -690,7 +692,7 @@ export default function Analytics() {
       } else if (count >= 2 || completedOnDay >= 1) {
         level = "med";
         icon = isScheduledRestDay ? "spa" : null;
-        note = `${completedOnDay} resolved • Active Sprint${isScheduledRestDay ? " (Rest Day Bonus)" : ""}`;
+        note = `${completedOnDay} resolved • Active Focus${isScheduledRestDay ? " (Rest Day Bonus)" : ""}`;
       } else if (count === 1) {
         level = "low";
         icon = isScheduledRestDay ? "spa" : null;
@@ -796,14 +798,14 @@ export default function Analytics() {
 
     if (consecutiveActiveDays >= 6) {
       burnoutRisk = "high";
-      burnoutWarning = `⚠️ High Cognitive Fatigue Warning: ${consecutiveActiveDays} consecutive high-intensity sprint days detected without recovery. Neural performance diminishes past 5 continuous days. A restorative Rest Day is recommended tomorrow.`;
+      burnoutWarning = `⚠️ High Cognitive Fatigue Warning: ${consecutiveActiveDays} consecutive high-intensity focus days detected without recovery. Neural performance diminishes past 5 continuous days. A restorative Rest Day is recommended tomorrow.`;
     } else if (consecutiveActiveDays >= 4) {
       burnoutRisk = "moderate";
       burnoutWarning = `Approaching intensity threshold (${consecutiveActiveDays} consecutive days). Maintain hydration, 25m focus blocks, and shield your upcoming rest day.`;
     } else if (isTodayRestDay) {
       burnoutWarning = `🌿 Rest & Recovery Day Active: Cognitive consolidation in progress. Your daily streak is automatically shielded and frozen.`;
     } else {
-      burnoutWarning = `🌱 Balanced Focus Rhythm: Active sprint day properly balanced against scheduled recovery cycles. Burnout risk is minimal.`;
+      burnoutWarning = `🌱 Balanced Focus Rhythm: Active focus day properly balanced against scheduled recovery cycles. Burnout risk is minimal.`;
     }
 
     const progressToRecordPct = Math.min(100, Math.round((focusStreak / longestStreak) * 100));
@@ -933,9 +935,9 @@ export default function Analytics() {
       } else if (t.loggedSeconds && t.loggedSeconds > 0) {
         actHours = Math.round((t.loggedSeconds / 3600) * 10) / 10;
       } else if (t.completed) {
-        // High-impact / complex tasks tend to overrun slightly; quick-wins finish slightly faster
-        const isDeep = t.category === "high-impact" || t.priority?.includes("P1") || t.effort?.includes("Deep");
-        const isQuick = t.category === "quick-wins" || t.priority?.includes("P2");
+        // Deep focus / high priority tasks tend to overrun slightly; lighter tasks finish slightly faster
+        const isDeep = t.category === "Daily Focus" || t.category === "Goal" || t.priority?.includes("P1") || t.effort?.includes("Deep");
+        const isQuick = t.duration?.includes("15") || t.effort?.includes("Light") || t.priority?.includes("P3");
         const multiplier = isDeep ? 1.2 : isQuick ? 0.85 : 1.05;
         actHours = Math.round(estHours * multiplier * 10) / 10;
       }
@@ -964,7 +966,7 @@ export default function Analytics() {
         varianceTasks.push({
           id: t.id,
           title: t.title || "Untitled Task",
-          category: t.category || "Sprint Task",
+          category: t.category || "Goal",
           completed: !!t.completed,
           estHours: Math.round(estHours * 10) / 10,
           actHours: Math.round(actHours * 10) / 10,
@@ -983,7 +985,7 @@ export default function Analytics() {
     if (calibrationRatio > 1.15) {
       recommendation = `AI Scheduling Advisory: High-impact tasks run ~${Math.round((calibrationRatio - 1) * 100)}% over initial estimate. The AI scheduler automatically pads focus blocks with +15m buffers.`;
     } else if (calibrationRatio < 0.88) {
-      recommendation = `AI Scheduling Advisory: Tasks are resolved ${Math.round((1 - calibrationRatio) * 100)}% faster than planned. Consider increasing daily sprint velocity capacity.`;
+      recommendation = `AI Scheduling Advisory: Tasks are resolved ${Math.round((1 - calibrationRatio) * 100)}% faster than planned. Consider increasing daily focus capacity.`;
     }
 
     return {
@@ -1151,7 +1153,7 @@ export default function Analytics() {
         label: "Midday Falcon Profile",
         peakWindow: "11:00 AM – 02:30 PM",
         recommendation: "Shield 11:00 AM – 02:30 PM for Deep Work",
-        aiText: "Midday Falcon Cadence: Maximum focus alignment is achieved on midday sprints before operational syncs.",
+        aiText: "Midday Falcon Cadence: Maximum focus alignment is achieved on midday focus blocks before operational syncs.",
       };
     }
     return {
@@ -1289,8 +1291,8 @@ Period: ${selectedRange}
 - Record Status: ${streakAndConsistencyMetrics.isNewRecord ? "👑 New All-Time Record!" : `${streakAndConsistencyMetrics.progressToRecordPct}% towards personal best record`}
 - Streak Shields Available: ${streakAndConsistencyMetrics.streakFreezes}
 - Rest Day Cadence: ${streakAndConsistencyMetrics.restDaysCadence}
-- Today's State: ${streakAndConsistencyMetrics.isTodayRestDay ? "Scheduled Rest & Recovery Day (Streak Shielded)" : "Active Sprint Day"}
-- Consecutive Active Sprint Days: ${streakAndConsistencyMetrics.consecutiveActiveDays} days
+- Today's State: ${streakAndConsistencyMetrics.isTodayRestDay ? "Scheduled Rest & Recovery Day (Streak Shielded)" : "Active Focus Day"}
+- Consecutive Active Focus Days: ${streakAndConsistencyMetrics.consecutiveActiveDays} days
 - Burnout Risk Assessment: ${streakAndConsistencyMetrics.burnoutRisk.toUpperCase()}
 - Burnout Prevention Advisory: ${streakAndConsistencyMetrics.burnoutWarning}
 
@@ -1409,7 +1411,7 @@ Synced via Successor Real-time Architecture
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Work Sprint</span>
+                    <span className="truncate font-body-sm text-body-sm">Goal</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest group-hover:text-on-surface">
                     {activeTasksCount}
@@ -1421,7 +1423,7 @@ Synced via Successor Real-time Architecture
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-tertiary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Deep Work</span>
+                    <span className="truncate font-body-sm text-body-sm">Daily Focus</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest group-hover:text-on-surface">
                     {highImpactCount}
@@ -1692,10 +1694,10 @@ Synced via Successor Real-time Architecture
 
                 <div className="space-y-2 mt-5">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-outline font-medium">Sprint Focus Target</span>
+                    <span className="text-outline font-medium">Goal Focus Target</span>
                     <div className="flex items-center gap-1.5">
                       <span className="font-tabular-mono font-bold text-primary">
-                        {Math.min(100, Math.round((currentDeepWorkHours / sprintTargetHours) * 100))}% ({sprintTargetHours}h Goal)
+                        {Math.min(100, Math.round((currentDeepWorkHours / weeklyFocusTargetHours) * 100))}% ({weeklyFocusTargetHours}h Goal)
                       </span>
                       <button
                         type="button"
@@ -1710,7 +1712,7 @@ Synced via Successor Real-time Architecture
                   <div className="w-full h-2 rounded-full bg-surface-container overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-all duration-700"
-                      style={{ width: `${Math.min(100, Math.round((currentDeepWorkHours / sprintTargetHours) * 100))}%` }}
+                      style={{ width: `${Math.min(100, Math.round((currentDeepWorkHours / weeklyFocusTargetHours) * 100))}%` }}
                     />
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-outline pt-0.5">
@@ -1838,7 +1840,7 @@ Synced via Successor Real-time Architecture
                     title="Open inline weekly target capacity slider"
                   >
                     <span className="material-symbols-outlined text-[16px]">tune</span>
-                    <span>Capacity: {sprintTargetHours}h/wk</span>
+                    <span>Capacity: {weeklyFocusTargetHours}h/wk</span>
                     <span className="material-symbols-outlined text-[14px]">
                       {showTargetEditor ? "expand_less" : "expand_more"}
                     </span>
@@ -1884,7 +1886,7 @@ Synced via Successor Real-time Architecture
                         </span>
                       </div>
                       <p className="text-xs text-outline max-w-xl">
-                        Quickly dial your weekly target commitment. Adjusts daily workload cap and circadian sprint goals in real time without navigating to Profile settings.
+                        Quickly dial your weekly target commitment. Adjusts daily workload cap and circadian focus goals in real time without navigating to Profile settings.
                       </p>
                     </div>
 
@@ -1940,7 +1942,7 @@ Synced via Successor Real-time Architecture
                       {[
                         { label: "15h Light", hours: 15 },
                         { label: "20h Standard", hours: 20 },
-                        { label: "25h Deep Sprint", hours: 25 },
+                        { label: "25h Deep Focus", hours: 25 },
                         { label: "35h High Velocity", hours: 35 },
                         { label: "40h Max Capacity", hours: 40 },
                       ].map((preset) => (
@@ -2397,7 +2399,7 @@ Synced via Successor Real-time Architecture
                             onClick={() => navigate("/board")}
                             className="mt-4 px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-semibold hover:bg-primary-container transition-colors cursor-pointer"
                           >
-                            Schedule Tasks in Sprint
+                            Schedule Tasks in Goal Board
                           </button>
                         </div>
                       ) : (
@@ -2767,14 +2769,14 @@ Synced via Successor Real-time Architecture
                         ) : (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary border border-primary/25">
                             <span className="material-symbols-outlined text-[14px]">bolt</span>
-                            Today: Active Focus Sprint Day
+                            Today: Active Daily Focus Day
                           </span>
                         )}
 
                         <span className="text-[11px] text-outline font-medium">
                           {streakAndConsistencyMetrics.isTodayRestDay
                             ? "Streak shielded & frozen"
-                            : `${streakAndConsistencyMetrics.consecutiveActiveDays} consecutive sprint days`}
+                            : `${streakAndConsistencyMetrics.consecutiveActiveDays} consecutive focus days`}
                         </span>
                       </div>
 
@@ -2799,8 +2801,8 @@ Synced via Successor Real-time Architecture
                               Rest Cadence Configuration
                             </div>
                             {[
-                              { label: "Weekends (Sat & Sun)", desc: "Standard 5-day sprint + 2-day recovery" },
-                              { label: "Sundays Only", desc: "High velocity 6-day sprint + 1-day rest" },
+                              { label: "Weekends (Sat & Sun)", desc: "Standard 5-day focus + 2-day recovery" },
+                              { label: "Sundays Only", desc: "High velocity 6-day focus + 1-day rest" },
                               { label: "Wednesdays & Sundays", desc: "Bi-phasic midweek reset + weekend rest" },
                             ].map((opt) => (
                               <button
@@ -2849,7 +2851,7 @@ Synced via Successor Real-time Architecture
                               : "Optimal Focus & Recovery Rhythm"}
                           </span>
                           <span className="text-[10px] opacity-75 font-mono">
-                            ({streakAndConsistencyMetrics.consecutiveActiveDays} consecutive sprint days)
+                            ({streakAndConsistencyMetrics.consecutiveActiveDays} consecutive focus days)
                           </span>
                         </div>
                         <p className="text-[11px] leading-relaxed opacity-95">
@@ -3005,7 +3007,7 @@ Synced via Successor Real-time Architecture
                     </div>
                     <p className="text-[11px] text-outline mt-1.5 line-clamp-1">
                       {rolloverAndAccuracyMetrics.stagnantCount === 0
-                        ? "Sprint queue is moving smoothly with zero multi-day task drag."
+                        ? "Goal queue is moving smoothly with zero multi-day task drag."
                         : "Flagged for immediate AI decomposition or priority re-evaluation."}
                     </p>
                   </div>
@@ -3090,7 +3092,7 @@ Synced via Successor Real-time Architecture
                         </div>
                         <h4 className="font-semibold text-sm text-on-surface">Zero Stagnant Tasks Detected</h4>
                         <p className="text-xs text-outline mt-1 max-w-md">
-                          All tasks in your sprint queue are actively progressing within their assigned cycles. No multi-day task backlog has formed.
+                          All tasks in your goal queue are actively progressing within their assigned cycles. No multi-day task backlog has formed.
                         </p>
                       </div>
                     ) : (
@@ -3116,7 +3118,7 @@ Synced via Successor Real-time Architecture
                                 </div>
                                 <div className="flex items-center gap-2 mt-1 text-[11px] text-outline flex-wrap">
                                   <span className="px-2 py-0.2 rounded-full bg-surface-container font-medium text-on-surface-variant">
-                                    {t.category || "Sprint"}
+                                    {t.category || "Goal"}
                                   </span>
                                   <span>•</span>
                                   <span className="font-tabular-mono">Planned: {t.duration || "30m"}</span>
@@ -3457,7 +3459,7 @@ Synced via Successor Real-time Architecture
                     <div className="space-y-0.5 min-w-0 flex-1 pr-3">
                       <h4 className="font-body-md font-medium text-on-surface truncate">{t.title}</h4>
                       <div className="flex items-center gap-2 text-label-sm text-outline truncate">
-                        <span className="capitalize">{t.category || "Sprint"}</span>
+                        <span className="capitalize">{t.category || "Goal"}</span>
                         <span>•</span>
                         <span>{t.completed ? "Resolved" : "Pending"}</span>
                       </div>

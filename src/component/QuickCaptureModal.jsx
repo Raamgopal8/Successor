@@ -103,7 +103,7 @@ export default function QuickCaptureModal({ isOpen, onClose, onTaskCreated }) {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="e.g. Design auth workflow tomorrow 45m #Security P1"
+              placeholder="e.g. Spanish speaking practice tomorrow 45m #PersonalGoal P1"
               className="w-full text-base sm:text-lg bg-transparent text-on-surface placeholder:text-outline/60 outline-none font-medium leading-relaxed"
               autoFocus
             />
@@ -156,7 +156,7 @@ export default function QuickCaptureModal({ isOpen, onClose, onTaskCreated }) {
           <div className="space-y-1">
             <div className="text-[11px] text-outline font-medium">Quick suggestions (click to insert):</div>
             <div className="flex flex-wrap gap-1.5">
-              {["P1", "P2", "P3", "30m", "45m", "90m", "Tomorrow", "#Frontend", "#Backend", "#DeepWork"].map((token) => (
+              {["P1", "P2", "P3", "30m", "45m", "60m", "Tomorrow", "#Goal", "#LongTerm", "#PersonalGoal", "#CareerGoal", "#DailyFocus"].map((token) => (
                 <button
                   key={token}
                   type="button"

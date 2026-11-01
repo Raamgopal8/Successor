@@ -69,12 +69,11 @@ export const DEFAULT_TASK_LABELS = [
   { id: "lbl-p2", name: "P2 Strategic", type: "priority", color: "tertiary" },
   { id: "lbl-p3", name: "P3 Maintenance", type: "priority", color: "slate" },
   { id: "lbl-p4", name: "P4 Low Priority", type: "priority", color: "slate" },
-  { id: "lbl-work", name: "Work Sprint", type: "category", color: "primary" },
-  { id: "lbl-deep", name: "Deep Work", type: "category", color: "tertiary" },
-  { id: "lbl-quick", name: "Quick Wins", type: "category", color: "emerald" },
-  { id: "lbl-personal", name: "Personal Rituals", type: "category", color: "secondary" },
-  { id: "lbl-design", name: "Design System", type: "category", color: "pink" },
-  { id: "lbl-dev", name: "Engineering / Dev", type: "category", color: "blue" },
+  { id: "lbl-goal", name: "Goal", type: "category", color: "primary" },
+  { id: "lbl-long-term", name: "Long Term", type: "category", color: "purple" },
+  { id: "lbl-personal-goal", name: "Personal Goal", type: "category", color: "secondary" },
+  { id: "lbl-career-goal", name: "Career Goal", type: "category", color: "blue" },
+  { id: "lbl-daily-focus", name: "Daily Focus", type: "category", color: "emerald" },
 ];
 
 export const getLabelStyleHelper = (nameOrId, customLabels = DEFAULT_TASK_LABELS) => {
@@ -103,115 +102,71 @@ export const getLabelStyleHelper = (nameOrId, customLabels = DEFAULT_TASK_LABELS
   if (str.includes("p1") || str.includes("urgent") || str.includes("high-impact")) {
     return LABEL_COLOR_OPTIONS[0];
   }
-  if (str.includes("p2") || str.includes("strategic") || str.includes("quick-wins")) {
+  if (str.includes("p2") || str.includes("strategic")) {
     return LABEL_COLOR_OPTIONS[3];
   }
   if (str.includes("p3") || str.includes("maintenance")) {
     return LABEL_COLOR_OPTIONS[9];
   }
-  if (str.includes("deep")) {
-    return LABEL_COLOR_OPTIONS[3];
+  if (str.includes("daily") || str.includes("focus")) {
+    return LABEL_COLOR_OPTIONS[4]; // emerald
+  }
+  if (str.includes("career")) {
+    return LABEL_COLOR_OPTIONS[6]; // blue
   }
   if (str.includes("personal") || str.includes("habit")) {
-    return LABEL_COLOR_OPTIONS[2];
+    return LABEL_COLOR_OPTIONS[2]; // secondary
   }
-  if (str.includes("work") || str.includes("sprint")) {
-    return LABEL_COLOR_OPTIONS[1];
+  if (str.includes("long")) {
+    return LABEL_COLOR_OPTIONS[5]; // purple
+  }
+  if (str.includes("goal")) {
+    return LABEL_COLOR_OPTIONS[1]; // primary
   }
 
   const hash = str.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
   return LABEL_COLOR_OPTIONS[Math.abs(hash) % LABEL_COLOR_OPTIONS.length];
 };
 
-const INITIAL_HABITS = [
-  { title: "Review daily priority queue", duration: "10m", done: false, cadence: "weekdays", streak: 5, bestStreak: 12, streakShields: 2 },
-  { title: "Shield 90m deep work sprint", duration: "90m", done: false, cadence: "weekdays", streak: 7, bestStreak: 14, streakShields: 2 },
-  { title: "Midday posture reset & walk", duration: "15m", done: false, cadence: "daily", streak: 12, bestStreak: 20, streakShields: 1 },
-  { title: "Evening async review & triage", duration: "15m", done: false, cadence: "daily", streak: 4, bestStreak: 9, streakShields: 2 },
-];
+export const INITIAL_HABITS = [];
+export const INITIAL_TASKS = [];
 
-export const INITIAL_TASKS = [
-  {
-    id: "sample-1",
-    code: "FF-1042",
-    title: "Finalize Executive Q3 Roadmapping",
-    description: "Align quarterly milestones, resource allocation, and key OKRs with senior stakeholders.",
-    status: "ready",
-    completed: false,
-    priority: "P1 Urgent & High Impact",
-    category: "Work Sprint",
-    duration: "45 min",
-    effort: "⚡⚡⚡ Deep Focus",
-    tags: ["#Roadmap", "#Leadership", "#Strategy"],
-    subtasks: "2/3",
-    isHighlight: true,
-    date: "Today",
-  },
-  {
-    id: "sample-2",
-    code: "FF-1089",
-    title: "Review Design Token System Architecture",
-    description: "Verify contrast ratios, responsive spacing, and dark/light mode token continuity across components.",
-    status: "ready",
-    completed: false,
-    priority: "P2 Strategic",
-    category: "Deep Work",
-    duration: "30 min",
-    effort: "⚡⚡ Moderate Effort",
-    tags: ["#DesignSystem", "#A11y"],
-    subtasks: "1/2",
-    isHighlight: false,
-    date: "Today",
-  },
-  {
-    id: "sample-3",
-    code: "FF-1120",
-    title: "Database Sync Performance Optimization",
-    description: "Audit Firestore subscriptions and query indexes to eliminate server latency.",
-    status: "in_progress",
-    completed: false,
-    priority: "P1 Urgent & High Impact",
-    category: "Work Sprint",
-    duration: "60 min",
-    effort: "⚡⚡⚡ Deep Focus",
-    tags: ["#Architecture", "#Performance"],
-    subtasks: "3/4",
-    isHighlight: false,
-    date: "Today",
-  },
-  {
-    id: "sample-4",
-    code: "FF-1145",
-    title: "Desktop Auto-Updater Pipeline Verification",
-    description: "Validate GitHub Actions release workflow and cryptographic signing keys for Tauri.",
-    status: "backlog",
-    completed: false,
-    priority: "P2 Strategic",
-    category: "Admin",
-    duration: "25 min",
-    effort: "⚡ Light Effort",
-    tags: ["#DevOps", "#Tauri"],
-    subtasks: "0/1",
-    isHighlight: false,
-    date: "Backlog",
-  },
-  {
-    id: "sample-5",
-    code: "FF-1160",
-    title: "Circadian Rhythm Flow Diagnostics",
-    description: "Review focus block completion analytics and adjust lark/owl peak interval schedules.",
-    status: "backlog",
-    completed: false,
-    priority: "P3 Maintenance",
-    category: "Health & Habits",
-    duration: "15 min",
-    effort: "⚡ Light Effort",
-    tags: ["#Productivity", "#Habits"],
-    subtasks: "1/1",
-    isHighlight: false,
-    date: "Backlog",
-  },
-];
+// Identifiers to detect and clean up legacy predefined datasets
+export const isLegacySampleTask = (taskOrId) => {
+  if (!taskOrId) return false;
+  const id = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
+  const code = typeof taskOrId === "object" ? taskOrId.code : null;
+  const title = typeof taskOrId === "object" ? taskOrId.title : null;
+  if (id && id.startsWith("sample-")) return true;
+  if (code && ["FF-1042", "FF-1089", "FF-1120", "FF-1145", "FF-1160"].includes(code)) return true;
+  if (
+    title &&
+    [
+      "Finalize Quarterly Goal Milestones",
+      "Long-Term Skill & Reading Plan",
+      "Career Goal Portfolio Review",
+      "Daily Focus Morning Routine Execution",
+      "Health & Habit Flow Diagnostics",
+    ].includes(title)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const isLegacySampleHabit = (habit) => {
+  if (!habit) return false;
+  const title = habit.title;
+  return (
+    title &&
+    [
+      "Review daily priority queue",
+      "Daily Focus 60m block",
+      "Midday posture reset & walk",
+      "Evening reflection & daily review",
+    ].includes(title)
+  );
+};
 
 export function AppProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
@@ -227,11 +182,13 @@ export function AppProvider({ children }) {
         const cached = localStorage.getItem("successor_cached_tasks");
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.filter((t) => !isLegacySampleTask(t));
+          }
         }
       }
     } catch (_) {}
-    return INITIAL_TASKS;
+    return [];
   });
   const [habits, setHabits] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
@@ -240,8 +197,12 @@ export function AppProvider({ children }) {
   // Sync tasks to local cache on change
   useEffect(() => {
     try {
-      if (typeof window !== "undefined" && Array.isArray(tasks) && tasks.length > 0) {
-        localStorage.setItem("successor_cached_tasks", JSON.stringify(tasks));
+      if (typeof window !== "undefined") {
+        if (Array.isArray(tasks) && tasks.length > 0) {
+          localStorage.setItem("successor_cached_tasks", JSON.stringify(tasks));
+        } else {
+          localStorage.removeItem("successor_cached_tasks");
+        }
       }
     } catch (_) {}
   }, [tasks]);
@@ -308,28 +269,26 @@ export function AppProvider({ children }) {
         } else {
           // Initialize default profile
           const defaultProf = {
-            displayName: currentUser.displayName || currentUser.email?.split("@")[0] || "Josh Royce",
-            displayTitle: "Product Manager",
+            displayName: currentUser.displayName || currentUser.email?.split("@")[0] || "User",
+            displayTitle: "",
             email: currentUser.email || "",
-            timezone: "Pacific Time (PT) - UTC-8",
-            avatarUrl:
-              currentUser.photoURL ||
-              "https://lh3.googleusercontent.com/aida-public/AB6AXuDOkoGNng0Vzbb8vUclMtOfGPfV8zR7B1kMHugReNU77lUrZ5eUaMn4kJLozsUWJctriuteIpDPn3m-fCQ_qbzU6FjTq18LxDxb6tklv1kV5ndvBQ_-IU9QA6veADEYzDGwmRs72FzKPAB2Eoj1Nmr4UlNfXRNYuKAS53El6j6OYJi7WlLN2QtQgoMDjQRoNo4ZZhvdo_gbGII6gbLEz7nkp7SlVz1jGxE6QyByOCy5-h4AzhmmsQzcYg",
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+            avatarUrl: currentUser.photoURL || "",
             chronotype: "lark",
             focusDuration: "25",
-            focusStreak: 12,
-            longestStreak: 21,
-            streakFreezes: 2,
+            focusStreak: 0,
+            longestStreak: 0,
+            streakFreezes: 0,
             restDaysCadence: "Weekends (Sat & Sun)",
-            lastStreakCreditedDate: getYesterdayString(new Date()),
-            lastTaskCompletedDate: getYesterdayString(new Date()),
+            lastStreakCreditedDate: null,
+            lastTaskCompletedDate: null,
             completedBlocks: 0,
             dailyTargetBlocks: 3,
             lastResetDate: getLocalDateString(new Date()),
             rolloverEnabled: true,
             briefingEnabled: true,
             customLabels: DEFAULT_TASK_LABELS,
-            defaultProject: "Work Sprint (Active)",
+            defaultProject: "Goal",
             createdAt: serverTimestamp(),
           };
           setDoc(userDocRef, defaultProf, { merge: true }).catch((err) =>
@@ -346,10 +305,10 @@ export function AppProvider({ children }) {
     return () => unsub();
   }, [currentUser]);
 
-  // 3. Real-time Tasks collection sync (with resilient fallback to avoid blank server error state)
+  // 3. Real-time Tasks collection sync (without predefined datasets)
   useEffect(() => {
     if (!currentUser) {
-      setTasks((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : INITIAL_TASKS));
+      setTasks((prev) => (Array.isArray(prev) ? prev.filter((t) => !isLegacySampleTask(t)) : []));
       setLoadingTasks(false);
       return;
     }
@@ -366,35 +325,40 @@ export function AppProvider({ children }) {
         q,
         async (snapshot) => {
           if (!snapshot.empty) {
-            const cloudTasks = snapshot.docs.map((d) => {
+            const legacyDocIdsToDelete = [];
+            const cloudTasks = [];
+
+            for (const d of snapshot.docs) {
               const data = d.data();
               const isCompleted = !!data.completed;
               const status = data.status || (isCompleted ? "completed" : "ready");
-              return {
+              const taskObj = {
                 id: d.id,
                 code: data.code || `FF-${d.id.slice(0, 4).toUpperCase()}`,
                 status,
                 completed: isCompleted,
                 ...data,
               };
-            });
+
+              if (isLegacySampleTask(taskObj)) {
+                legacyDocIdsToDelete.push(d.id);
+              } else {
+                cloudTasks.push(taskObj);
+              }
+            }
+
+            // Clean legacy sample tasks from Firestore if present
+            if (legacyDocIdsToDelete.length > 0 && currentUser) {
+              for (const legacyId of legacyDocIdsToDelete) {
+                deleteDoc(doc(db, "users", currentUser.uid, "tasks", legacyId)).catch(() => {});
+              }
+            }
+
             setTasks(cloudTasks);
             setLoadingTasks(false);
           } else {
-            // First time user: Seed INITIAL_TASKS into Firestore
-            try {
-              for (const sample of INITIAL_TASKS) {
-                const { id: _ignoreId, ...rest } = sample;
-                await addDoc(tasksCollectionRef, {
-                  ...rest,
-                  createdAt: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                });
-              }
-            } catch (err) {
-              console.warn("Could not seed initial tasks to server:", err);
-              setTasks(INITIAL_TASKS);
-            }
+            // No predefined datasets: clean slate
+            setTasks([]);
             setLoadingTasks(false);
           }
         },
@@ -404,8 +368,8 @@ export function AppProvider({ children }) {
             // If orderBy failed (e.g. index missing), retry without ordering
             cleanup = setupListener(false);
           } else {
-            // Fall back to cached or default array tasks so dashboard never breaks
-            setTasks((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : INITIAL_TASKS));
+            // Fall back to clean array tasks so dashboard never breaks
+            setTasks((prev) => (Array.isArray(prev) ? prev.filter((t) => !isLegacySampleTask(t)) : []));
             setLoadingTasks(false);
           }
         }
@@ -418,7 +382,7 @@ export function AppProvider({ children }) {
     };
   }, [currentUser]);
 
-  // 4. Real-time Habits collection sync
+  // 4. Real-time Habits collection sync (without predefined datasets)
   useEffect(() => {
     if (!currentUser) {
       setHabits([]);
@@ -437,10 +401,17 @@ export function AppProvider({ children }) {
         if (!snapshot.empty) {
           const todayStr = getLocalDateString(new Date());
           const staleHabitsToReset = [];
+          const legacyHabitIdsToDelete = [];
+          const list = [];
 
-          const list = snapshot.docs.map((d) => {
+          for (const d of snapshot.docs) {
             const data = d.data();
             const habitId = d.id;
+
+            if (isLegacySampleHabit(data)) {
+              legacyHabitIdsToDelete.push(habitId);
+              continue;
+            }
 
             // A habit is done today if and only if it was completed on today's local date
             let isDoneToday = false;
@@ -464,12 +435,19 @@ export function AppProvider({ children }) {
               staleHabitsToReset.push(habitId);
             }
 
-            return {
+            list.push({
               id: habitId,
               ...data,
               done: isDoneToday,
-            };
-          });
+            });
+          }
+
+          // Clean legacy sample habits from Firestore if present
+          if (legacyHabitIdsToDelete.length > 0 && currentUser) {
+            for (const lId of legacyHabitIdsToDelete) {
+              deleteDoc(doc(db, "users", currentUser.uid, "habits", lId)).catch(() => {});
+            }
+          }
 
           setHabits(list);
           setLoadingHabits(false);
@@ -488,33 +466,14 @@ export function AppProvider({ children }) {
             }
           }
         } else {
-          // Initialize default habits in Firestore
-          try {
-            for (let i = 0; i < INITIAL_HABITS.length; i++) {
-              await addDoc(collection(db, "users", currentUser.uid, "habits"), {
-                title: INITIAL_HABITS[i].title,
-                duration: INITIAL_HABITS[i].duration,
-                done: false,
-                lastCompletedDate: null,
-                cadence: INITIAL_HABITS[i].cadence || "daily",
-                streak: INITIAL_HABITS[i].streak || 0,
-                bestStreak: INITIAL_HABITS[i].bestStreak || 0,
-                streakShields: INITIAL_HABITS[i].streakShields ?? 2,
-                order: i,
-                createdAt: serverTimestamp(),
-              });
-            }
-          } catch (err) {
-            console.warn("Could not seed habits:", err);
-            setHabits(INITIAL_HABITS.map((h, i) => ({ ...h, id: `local-${i}` })));
-          } finally {
-            setLoadingHabits(false);
-          }
+          // No predefined datasets: clean slate
+          setHabits([]);
+          setLoadingHabits(false);
         }
       },
       (err) => {
         console.warn("Habits sync error:", err);
-        setHabits(INITIAL_HABITS.map((h, i) => ({ ...h, id: `local-${i}` })));
+        setHabits([]);
         setLoadingHabits(false);
       }
     );
@@ -603,13 +562,13 @@ export function AppProvider({ children }) {
   // 6. Task Operations (Bi-directional Sync across Dashboard, Board, Analytics)
   const createTask = useCallback(
     async (taskData) => {
-      const category = taskData.category || "high-impact";
+      const category = taskData.category || "Goal";
       const status = taskData.status || (taskData.completed ? "completed" : "ready");
       const priority =
         taskData.priority ||
-        (category === "high-impact"
+        (category === "Daily Focus" || category === "Goal"
           ? "P1 Urgent & High Impact"
-          : category === "quick-wins"
+          : category === "Personal Goal" || category === "Career Goal"
           ? "P2 Strategic"
           : "P3 Maintenance");
 
@@ -623,8 +582,8 @@ export function AppProvider({ children }) {
         category,
         priority,
         duration: taskData.duration || "30 min",
-        effort: taskData.effort || (category === "high-impact" ? "⚡⚡⚡ Deep Focus" : "⚡ Light Effort"),
-        tags: taskData.tags || ["#Sprint"],
+        effort: taskData.effort || (category === "Daily Focus" || category === "Goal" ? "⚡⚡⚡ Deep Focus" : "⚡ Light Effort"),
+        tags: taskData.tags || ["#Goal"],
         subtasks: taskData.subtasks || "0/1",
         completed: status === "completed",
         status,
@@ -655,29 +614,29 @@ export function AppProvider({ children }) {
     [currentUser, showToast]
   );
 
-  // Bulk creation of tasks (e.g. from AI Goal / Sprint generator)
+  // Bulk creation of tasks (e.g. from AI Goal generator)
   const createMultipleTasks = useCallback(
     async (taskDataArray = []) => {
       if (!Array.isArray(taskDataArray) || taskDataArray.length === 0) return [];
       const todayStr = getLocalDateString(new Date());
 
       const preparedTasks = taskDataArray.map((t, idx) => {
-        const category = t.category || "Work Sprint";
+        const category = t.category || "Goal";
         const status = t.status || (t.completed ? "completed" : "ready");
         const priority =
           t.priority ||
-          (category.toLowerCase().includes("deep") || category.toLowerCase().includes("high")
+          (category.toLowerCase().includes("urgent") || category.toLowerCase().includes("high")
             ? "P1 Urgent & High Impact"
             : "P2 Strategic");
 
         return {
           title: t.title?.trim() || `Generated Task ${idx + 1}`,
-          description: t.description?.trim() || "Synthesized by AI Goal Planner.",
+          description: t.description?.trim() || "Generated by AI Goal Planner.",
           category,
           priority,
           duration: t.duration || "30 min",
           effort: t.effort || "⚡⚡ Med",
-          tags: t.tags || ["#AISprint"],
+          tags: t.tags || ["#Goal"],
           subtasks: Array.isArray(t.subtasks) ? t.subtasks : "0/1",
           completed: status === "completed",
           status,
@@ -693,13 +652,18 @@ export function AppProvider({ children }) {
 
       if (currentUser) {
         try {
-          const batch = writeBatch(db);
-          preparedTasks.forEach((task) => {
-            const newDocRef = doc(collection(db, "users", currentUser.uid, "tasks"));
-            task.id = newDocRef.id;
-            batch.set(newDocRef, task);
-          });
-          await batch.commit();
+          // Chunk into batches of 250 to remain comfortably within Firestore 500-op limit
+          const CHUNK_SIZE = 250;
+          for (let i = 0; i < preparedTasks.length; i += CHUNK_SIZE) {
+            const chunk = preparedTasks.slice(i, i + CHUNK_SIZE);
+            const batch = writeBatch(db);
+            chunk.forEach((task) => {
+              const newDocRef = doc(collection(db, "users", currentUser.uid, "tasks"));
+              task.id = newDocRef.id;
+              batch.set(newDocRef, task);
+            });
+            await batch.commit();
+          }
         } catch (err) {
           console.warn("Batch write error, generating local IDs:", err);
           preparedTasks.forEach((t) => {
@@ -713,7 +677,7 @@ export function AppProvider({ children }) {
       }
 
       setTasks((prev) => [...preparedTasks, ...prev]);
-      showToast(`⚡ Generated and saved ${preparedTasks.length} tasks!`, "success");
+      showToast(`⚡ Saved ${preparedTasks.length} tasks to your board!`, "success");
       return preparedTasks;
     },
     [currentUser, showToast]
@@ -1384,7 +1348,7 @@ export function AppProvider({ children }) {
         },
         {
           id: `sub-${Date.now()}-2`,
-          title: `Sprint Core Execution: ${baseTitle}`,
+          title: `Daily Focus Execution: ${baseTitle}`,
           duration: "15m",
           completed: false,
         },
@@ -1471,7 +1435,15 @@ export function AppProvider({ children }) {
   const totalTasksCount = useMemo(() => taskList.length, [taskList]);
 
   const highImpactCount = useMemo(
-    () => taskList.filter((t) => t.category === "high-impact" || t.effort?.includes("Deep")).length,
+    () =>
+      taskList.filter(
+        (t) =>
+          t.category === "Daily Focus" ||
+          t.category === "Goal" ||
+          t.category === "high-impact" ||
+          t.priority?.includes("P1") ||
+          t.effort?.includes("Deep")
+      ).length,
     [taskList]
   );
 
@@ -1531,9 +1503,11 @@ export function AppProvider({ children }) {
       .filter(
         (t) =>
           t.completed &&
-          (t.category === "high-impact" ||
+          (t.category === "Daily Focus" ||
+            t.category === "Goal" ||
+            t.category === "high-impact" ||
             t.effort?.includes("Deep") ||
-            t.category?.toLowerCase().includes("design"))
+            t.priority?.includes("P1"))
       )
       .reduce((sum, t) => sum + parseDurationHours(t.duration), 0);
     const totalHours = blocksHours + deepTaskHours;
@@ -1550,53 +1524,52 @@ export function AppProvider({ children }) {
   // Category distribution for Analytics based on live Firestore tasks
   const categoryBreakdown = useMemo(() => {
     const total = taskList.length;
-    let designCount = 0;
-    let techCount = 0;
-    let habitCount = 0;
-    let adminCount = 0;
+    let goalCount = 0;
+    let longTermCount = 0;
+    let personalCount = 0;
+    let careerCount = 0;
+    let dailyFocusCount = 0;
 
-    let designHours = 0;
-    let techHours = 0;
-    let habitHours = 0;
-    let adminHours = 0;
+    let goalHours = 0;
+    let longTermHours = 0;
+    let personalHours = 0;
+    let careerHours = 0;
+    let dailyFocusHours = 0;
 
     taskList.forEach((t) => {
       const cat = (t.category || "").toLowerCase();
       const dur = parseDurationHours(t.duration);
 
-      if (cat.includes("design") || cat.includes("high-impact") || t.priority?.includes("P1")) {
-        designCount += 1;
-        designHours += dur;
-      } else if (
-        cat.includes("arch") ||
-        cat.includes("tech") ||
-        cat.includes("dev") ||
-        cat.includes("database") ||
-        cat.includes("security") ||
-        cat.includes("feat")
-      ) {
-        techCount += 1;
-        techHours += dur;
-      } else if (cat.includes("habit") || cat.includes("quick") || t.priority?.includes("P2")) {
-        habitCount += 1;
-        habitHours += dur;
+      if (cat.includes("personal")) {
+        personalCount += 1;
+        personalHours += dur;
+      } else if (cat.includes("career")) {
+        careerCount += 1;
+        careerHours += dur;
+      } else if (cat.includes("long term") || cat.includes("longterm")) {
+        longTermCount += 1;
+        longTermHours += dur;
+      } else if (cat.includes("daily") || cat.includes("focus")) {
+        dailyFocusCount += 1;
+        dailyFocusHours += dur;
       } else {
-        adminCount += 1;
-        adminHours += dur;
+        goalCount += 1;
+        goalHours += dur;
       }
     });
 
     const divisor = Math.max(1, total);
-    const designPct = total > 0 ? Math.round((designCount / divisor) * 100) : 0;
-    const techPct = total > 0 ? Math.round((techCount / divisor) * 100) : 0;
-    const habitPct = total > 0 ? Math.round((habitCount / divisor) * 100) : 0;
-    const adminPct = total > 0 ? Math.max(0, 100 - (designPct + techPct + habitPct)) : 0;
-
     return {
-      design: { pct: designPct, count: designCount, hours: designHours.toFixed(1) },
-      tech: { pct: techPct, count: techCount, hours: techHours.toFixed(1) },
-      habit: { pct: habitPct, count: habitCount, hours: habitHours.toFixed(1) },
-      admin: { pct: adminPct, count: adminCount, hours: adminHours.toFixed(1) },
+      goal: { pct: total > 0 ? Math.round((goalCount / divisor) * 100) : 0, count: goalCount, hours: goalHours.toFixed(1) },
+      longTerm: { pct: total > 0 ? Math.round((longTermCount / divisor) * 100) : 0, count: longTermCount, hours: longTermHours.toFixed(1) },
+      personal: { pct: total > 0 ? Math.round((personalCount / divisor) * 100) : 0, count: personalCount, hours: personalHours.toFixed(1) },
+      career: { pct: total > 0 ? Math.round((careerCount / divisor) * 100) : 0, count: careerCount, hours: careerHours.toFixed(1) },
+      dailyFocus: { pct: total > 0 ? Math.round((dailyFocusCount / divisor) * 100) : 0, count: dailyFocusCount, hours: dailyFocusHours.toFixed(1) },
+      // Backward compatibility keys
+      design: { pct: total > 0 ? Math.round((dailyFocusCount / divisor) * 100) : 0, count: dailyFocusCount, hours: dailyFocusHours.toFixed(1) },
+      tech: { pct: total > 0 ? Math.round((goalCount / divisor) * 100) : 0, count: goalCount, hours: goalHours.toFixed(1) },
+      habit: { pct: total > 0 ? Math.round((personalCount / divisor) * 100) : 0, count: personalCount, hours: personalHours.toFixed(1) },
+      admin: { pct: total > 0 ? Math.round((careerCount / divisor) * 100) : 0, count: careerCount, hours: careerHours.toFixed(1) },
     };
   }, [taskList, parseDurationHours]);
 
@@ -2035,12 +2008,12 @@ export function AppProvider({ children }) {
   );
 
   // Derived user display properties with graceful fallbacks
-  const displayName = userProfile?.displayName || currentUser?.displayName || "Elena Vance";
-  const displayTitle = userProfile?.displayTitle || "Staff Product Designer";
+  const displayName = userProfile?.displayName || currentUser?.displayName || currentUser?.email?.split("@")[0] || "User";
+  const displayTitle = userProfile?.displayTitle || "";
   const avatarUrl =
     userProfile?.avatarUrl ||
     currentUser?.photoURL ||
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuDOkoGNng0Vzbb8vUclMtOfGPfV8zR7B1kMHugReNU77lUrZ5eUaMn4kJLozsUWJctriuteIpDPn3m-fCQ_qbzU6FjTq18LxDxb6tklv1kV5ndvBQ_-IU9QA6veADEYzDGwmRs72FzKPAB2Eoj1Nmr4UlNfXRNYuKAS53El6j6OYJi7WlLN2QtQgoMDjQRoNo4ZZhvdo_gbGII6gbLEz7nkp7SlVz1jGxE6QyByOCy5-h4AzhmmsQzcYg";
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E";
 
   const contextValue = {
     // Auth & Profile

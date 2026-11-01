@@ -187,7 +187,7 @@ export async function pushTaskToGoogleCalendar(task, targetDateStr, accessToken)
 
   const eventPayload = {
     summary: `[Successor] ${task.title}`,
-    description: `${task.description || "Sprint focus task"}\n\nCategory: ${task.category || "Sprint"}\nPriority: ${task.priority || "P1"}\nManaged via Successor Workstation`,
+    description: `${task.description || "Daily focus task"}\n\nCategory: ${task.category || "Goal"}\nPriority: ${task.priority || "P1"}\nManaged via Successor Workstation`,
     start: {
       dateTime: start.toISOString(),
     },

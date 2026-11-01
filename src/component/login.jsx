@@ -285,7 +285,7 @@ const Login = () => {
                         Successor
                       </span>
                       <span className="bg-[#edeefc] text-[#5558e6] text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        V1.6
+                        V1.7
                       </span>
                     </div>
                     <p className="text-[13px] text-[#555a6d] font-normal tracking-normal -mt-0.5">

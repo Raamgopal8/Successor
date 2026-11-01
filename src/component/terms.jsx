@@ -103,7 +103,7 @@ export default function Terms() {
           <div className="p-5 rounded-xl bg-surface-container-low border border-outline-variant/15 space-y-3">
             <h3 className="font-semibold text-on-surface">Your Content Belongs to You</h3>
             <p className="text-body-sm text-on-surface-variant leading-relaxed">
-              You retain full intellectual property ownership of all tasks, descriptions, notes, sprint logs, and custom metrics you create in Successor. 
+              You retain full intellectual property ownership of all tasks, descriptions, notes, daily focus logs, and custom metrics you create in Successor. 
               We claim no ownership, copyright, or moral rights over your data.
             </p>
           </div>

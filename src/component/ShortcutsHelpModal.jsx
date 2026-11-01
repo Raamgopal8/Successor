@@ -31,7 +31,7 @@ export default function ShortcutsHelpModal({ isOpen, onClose }) {
     {
       group: "Natural Language Parser Syntax",
       shortcuts: [
-        { keys: ["#tag"], desc: "Categorize (e.g. #Frontend, #Security)" },
+        { keys: ["#tag"], desc: "Categorize (e.g. #PersonalGoal, #CareerGoal)" },
         { keys: ["45m", "1h"], desc: "Set estimated block duration" },
         { keys: ["P1", "P2"], desc: "Set priority level in prompt" },
         { keys: ["tomorrow"], desc: "Set due date automatically" },

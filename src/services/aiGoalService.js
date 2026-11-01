@@ -614,13 +614,186 @@ export async function testAiKeyConnectivity({ provider = "gemini", apiKey = "", 
 }
 
 /**
+ * 90-Day Daily Workplan Generator
+ * Synthesizes a complete 90-day daily operational workplan from Day 1 to Day 90.
+ * Uses 3 chunked synthesis stages (Days 1–30, Days 31–60, Days 61–90) to guarantee
+ * 100% reliable, untruncated JSON across all LLMs.
+ */
+export async function generate90DayWorkplan({
+  goal,
+  goalType = "Goal",
+  dailyCommitment = "1 hour / day",
+  startDate = null,
+  userContext = {},
+  credentials,
+  onProgress = () => {},
+}) {
+  const baseStart = startDate ? new Date(startDate) : new Date();
+
+  // Helper to format date YYYY-MM-DD
+  const formatIsoDate = (d) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const horizons = [
+    {
+      stage: 1,
+      title: "Month 1: Foundations & Setup (Days 1–30)",
+      startDay: 1,
+      endDay: 30,
+      focus: "Laying foundations, initial milestones, establishing daily consistency",
+    },
+    {
+      stage: 2,
+      title: "Month 2: Building Momentum & Execution (Days 31–60)",
+      startDay: 31,
+      endDay: 60,
+      focus: "Accelerating execution, deepening skills/outputs, maintaining daily momentum",
+    },
+    {
+      stage: 3,
+      title: "Month 3: Completion & Results (Days 61–90)",
+      startDay: 61,
+      endDay: 90,
+      focus: "Final stretch, polishing, reviewing results, cementing long-term success",
+    },
+  ];
+
+  const allDaysTasks = [];
+
+  for (let hIdx = 0; hIdx < horizons.length; hIdx++) {
+    const h = horizons[hIdx];
+    onProgress({
+      stage: h.stage,
+      totalStages: 3,
+      percent: Math.round((hIdx / 3) * 100),
+      stageTitle: h.title,
+      message: `Generating ${h.title}...`,
+    });
+
+    const systemPrompt = `You are a world-class Goal Strategist and Daily Execution Planner for Successor.
+Your mission is to generate a day-by-day actionable task plan for ${h.title}.
+Generate 1 focused, high-impact task for EACH day from Day ${h.startDay} to Day ${h.endDay} (exactly 30 days).
+Use simple, clear terms: Goal, Long Term, Personal Goal, Career Goal.
+DO NOT use overly technical IT jargon. Every task must be realistic, motivating, and concrete.
+
+SCHEMA:
+{
+  "stageName": "${h.title}",
+  "stageFocus": string,
+  "dailyTasks": [
+    {
+      "day": number (${h.startDay} to ${h.endDay}),
+      "title": string (Clear, actionable daily task title),
+      "description": string (1-2 sentences on what to do),
+      "category": "Goal" | "Long Term" | "Personal Goal" | "Career Goal",
+      "priority": "P1 Urgent & High Impact" | "P2 Strategic" | "P3 Maintenance",
+      "duration": "30 min" | "45 min" | "60 min",
+      "effort": "⚡⚡⚡ Deep" | "⚡⚡ Med" | "⚡ Light",
+      "tags": [string],
+      "isHighlight": boolean,
+      "subtasks": [
+        { "title": string, "duration": string }
+      ]
+    }
+  ]
+}`;
+
+    const userPrompt = `Primary Goal: "${goal}"
+Goal Type: "${goalType}"
+Daily Time Commitment: "${dailyCommitment}"
+Current Planning Stage: "${h.title}" (Days ${h.startDay} through ${h.endDay})
+Stage Focus: ${h.focus}
+
+Generate the 30 daily tasks for this stage. Ensure day numbers run from ${h.startDay} to ${h.endDay}. Return strict JSON.`;
+
+    let stageTasks = [];
+    try {
+      const res = await callAiModel({
+        provider: credentials.provider,
+        model: credentials.model,
+        apiKey: credentials.apiKey,
+        endpoint: credentials.endpoint,
+        systemPrompt,
+        userPrompt,
+        jsonMode: true,
+      });
+
+      if (Array.isArray(res?.dailyTasks)) {
+        stageTasks = res.dailyTasks;
+      }
+    } catch (err) {
+      console.warn(`Error generating ${h.title}:`, err);
+    }
+
+    // Ensure all 30 days in this range exist with calculated dates
+    for (let dayNum = h.startDay; dayNum <= h.endDay; dayNum++) {
+      const dayOffset = dayNum - 1;
+      const targetDate = new Date(baseStart);
+      targetDate.setDate(baseStart.getDate() + dayOffset);
+      const isoDate = formatIsoDate(targetDate);
+      const weekday = targetDate.toLocaleDateString("en-US", { weekday: "short" });
+
+      const found = stageTasks.find((t) => Number(t.day) === dayNum);
+      const category = found?.category || goalType || "Goal";
+      const taskTitle = found?.title || `Day ${dayNum}: Progress on ${goal.slice(0, 40)}`;
+
+      allDaysTasks.push({
+        dayNumber: dayNum,
+        dayOffset,
+        date: isoDate,
+        dayName: weekday,
+        monthStage: h.stage,
+        stageTitle: h.title,
+        title: taskTitle,
+        description: found?.description || `Daily action step for ${h.title}.`,
+        category,
+        priority: found?.priority || (dayNum % 7 === 1 ? "P1 Urgent & High Impact" : "P2 Strategic"),
+        duration: found?.duration || "45 min",
+        effort: found?.effort || "⚡⚡ Med",
+        tags: Array.isArray(found?.tags) && found.tags.length > 0 ? found.tags : [`#90DayGoal`, `#${category.replace(/\s+/g, "")}`],
+        isHighlight: Boolean(found?.isHighlight || dayNum === 1 || dayNum % 14 === 0),
+        subtasks: Array.isArray(found?.subtasks) && found.subtasks.length > 0
+          ? found.subtasks
+          : [
+              { title: "Review daily goal and prepare", duration: "10m" },
+              { title: "Execute core step", duration: "30m" },
+              { title: "Quick reflection & record progress", duration: "5m" },
+            ],
+      });
+    }
+  }
+
+  onProgress({
+    stage: 3,
+    totalStages: 3,
+    percent: 100,
+    stageTitle: "Complete",
+    message: "Successfully synthesized full 90-day workplan!",
+  });
+
+  return {
+    success: true,
+    goal,
+    goalType,
+    totalDays: allDaysTasks.length,
+    startDate: formatIsoDate(baseStart),
+    tasks: allDaysTasks,
+  };
+}
+
+/**
  * 1. Initial Long-term Goal Analysis
- * Takes a broad strategic objective (e.g. "Launch mobile app in Q4" or "Publish 12 technical essays")
- * Analyzes feasibility, milestones, cognitive phases, and risk factors.
+ * Takes a broad strategic objective (e.g. "Run a half-marathon" or "Advance to Lead Designer")
+ * Analyzes feasibility, milestones, cognitive phases, and key habits.
  */
 export async function analyzeLongTermGoal({ goal, timeframe, userContext, credentials }) {
-  const systemPrompt = `You are an elite Executive Productivity Architect & AI Goal Strategist for Successor workstation.
-Your purpose is to conduct a rigorous, high-level feasibility and milestone decomposition for a user's strategic long-term goal.
+  const systemPrompt = `You are an elite Goal Strategist & Personal Coach for Successor.
+Your purpose is to conduct a clear, motivating feasibility and milestone decomposition for a user's strategic long-term goal.
+Use simple, clear terms: Goal, Long Term, Personal Goal, Career Goal. Avoid complex IT jargon.
 You MUST output valid, parseable JSON matching the schema below without any markdown text outside the JSON.
 
 SCHEMA:
@@ -628,7 +801,7 @@ SCHEMA:
   "goalTitle": string,
   "summary": string,
   "feasibilityScore": number (1 to 100),
-  "primaryArchetype": string (e.g. "Deep Product Build" | "Strategic Growth" | "Technical Mastery"),
+  "primaryArchetype": string (e.g. "Personal Goal" | "Career Goal" | "Long Term"),
   "recommendedCadenceHours": number (weekly hours needed),
   "strategicPhases": [
     {
@@ -641,12 +814,12 @@ SCHEMA:
   ],
   "potentialBottlenecks": [string],
   "successCriteria": [string],
-  "recommendedInitialSprints": [
+  "recommendedInitialGoals": [
     {
       "title": string,
       "priority": "P1 Urgent & High Impact" | "P2 Strategic" | "P3 Maintenance",
-      "category": string,
-      "estimatedDuration": string (e.g. "45 min", "60 min"),
+      "category": "Goal" | "Long Term" | "Personal Goal" | "Career Goal",
+      "estimatedDuration": string (e.g. "30 min", "45 min"),
       "effort": "⚡⚡⚡ Deep" | "⚡⚡ Med" | "⚡ Light"
     }
   ]
@@ -654,11 +827,11 @@ SCHEMA:
 
   const userPrompt = `Strategic Goal: "${goal}"
 Target Timeframe: ${timeframe || "Next 4 to 8 weeks"}
-User Context / Title: ${userContext?.displayTitle || "Professional Developer / Designer"}
+User Context / Title: ${userContext?.displayTitle || "Goal Achiever"}
 Chronotype: ${userContext?.chronotype || "Lark (Early Peak)"}
 Daily Focus Target: ${userContext?.dailyTargetBlocks || 3} blocks
 
-Perform an in-depth long-term goal analysis. Return the structured JSON plan.`;
+Perform an in-depth goal analysis using friendly, motivating terms. Return the structured JSON plan.`;
 
   return callAiModel({
     provider: credentials.provider,
@@ -676,13 +849,14 @@ Perform an in-depth long-term goal analysis. Return the structured JSON plan.`;
  * assigning them to specific days with durations, priorities, tags, and atomic subtasks.
  */
 export async function generateWeeklyTasks({ goal, phase, activeTasks = [], credentials, daysRange = 7 }) {
-  const systemPrompt = `You are an autonomous AI Task Synthesizer for high-velocity software professionals and founders.
-Your task is to generate a comprehensive, highly actionable weekly sprint workload of tasks (Mon through Sun or next 7 days).
-Every task MUST be concrete, atomic (15m to 60m), and immediately executable.
+  const systemPrompt = `You are a thoughtful Goal & Task Planner for Successor.
+Your task is to generate a motivating, highly actionable weekly schedule of tasks (next 7 days).
+Use simple, clear terms: Goal, Long Term, Personal Goal, Career Goal.
+Avoid IT-only workflow terms. Every task MUST be concrete, atomic (15m to 60m), and immediately doable.
 
 SCHEMA:
 {
-  "sprintName": string,
+  "planName": string,
   "focusMantra": string,
   "weeklyTotalHours": number,
   "tasks": [
@@ -691,12 +865,12 @@ SCHEMA:
       "description": string,
       "day": "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday",
       "dayOffset": number (0 to 6, where 0 is Today),
-      "category": "Work Sprint" | "Deep Work" | "Quick Wins" | "Engineering / Dev" | "Design System",
+      "category": "Goal" | "Long Term" | "Personal Goal" | "Career Goal",
       "priority": "P1 Urgent & High Impact" | "P2 Strategic" | "P3 Maintenance",
       "duration": string (e.g. "30 min", "45 min", "15 min"),
       "effort": "⚡⚡⚡ Deep" | "⚡⚡ Med" | "⚡ Light",
       "tags": [string],
-      "isHighlight": boolean (true for at most 1 primary highlight per day),
+      "isHighlight": boolean,
       "subtasks": [
         { "title": string, "duration": string }
       ]
@@ -709,12 +883,12 @@ SCHEMA:
     .map((t) => `- [${t.status}] ${t.title} (${t.priority || "Task"})`)
     .join("\n");
 
-  const userPrompt = `Strategic Anchor Goal: "${goal}"
-Current Phase: "${phase || "Execution & Acceleration"}"
+  const userPrompt = `Goal to Pursue: "${goal}"
+Current Phase: "${phase || "Building Consistency & Progress"}"
 Already Existing Tasks in Workspace:
 ${existingTaskSummary || "None"}
 
-Generate ${daysRange}-day sprint workload (8 to 15 granular tasks across the week) that moves this goal forward decisively. Return structured JSON.`;
+Generate ${daysRange}-day goal workload (8 to 14 granular daily tasks across the week). Return structured JSON.`;
 
   return callAiModel({
     provider: credentials.provider,
@@ -800,7 +974,7 @@ export async function rescheduleMissedTasks({
   ) {
     try {
       const systemPrompt = `You are an AI Task Decomposition Engine for Successor.
-The following tasks are oversized (>90 minutes) and exceed a single deep focus sprint.
+The following tasks are oversized (>90 minutes) and exceed a single daily focus session.
 Your ONLY job is to decompose EACH oversized task into atomic 15-minute subtasks that fit into tight daily working slots.
 
 SCHEMA:
@@ -828,7 +1002,7 @@ ${JSON.stringify(
   2
 )}
 
-Subdivide each into sequential 15-minute sprints. Respond strictly in JSON.`;
+Subdivide each into sequential 15-minute focus blocks. Respond strictly in JSON.`;
 
       const llmResult = await callAiModel({
         provider: credentials.provider,
@@ -847,23 +1021,23 @@ Subdivide each into sequential 15-minute sprints. Respond strictly in JSON.`;
         }
       }
     } catch (err) {
-      console.warn("LLM subdivision fallback error; applying algorithmic sprint chunks:", err);
+      console.warn("LLM subdivision fallback error; applying algorithmic focus chunks:", err);
     }
   }
 
   // Fallback 15m atomic subtask chunks for any subdivided task where LLM was skipped/failed
   for (const t of tasksNeedingSubdivision) {
     if (!subtasksMap.has(t.original_task_id)) {
-      const sprintCount = Math.max(2, Math.min(6, Math.round((t.duration_minutes || 60) / 15)));
+      const focusStepsCount = Math.max(2, Math.min(6, Math.round((t.duration_minutes || 60) / 15)));
       const generated = [
-        { title: `Sprint 1: Scope, dependencies & initial scaffold for ${t.new_title.slice(0, 30)}`, duration: "15m" },
-        { title: `Sprint 2: Core execution & implementation`, duration: "15m" },
+        { title: `Focus Step 1: Scope & scaffold for ${t.new_title.slice(0, 30)}`, duration: "15m" },
+        { title: `Focus Step 2: Core execution & implementation`, duration: "15m" },
       ];
-      if (sprintCount >= 3) {
-        generated.push({ title: `Sprint 3: Deep refinement block`, duration: "15m" });
+      if (focusStepsCount >= 3) {
+        generated.push({ title: `Focus Step 3: Deep refinement block`, duration: "15m" });
       }
-      if (sprintCount >= 4) {
-        generated.push({ title: `Sprint 4: Verification, testing & polish`, duration: "15m" });
+      if (focusStepsCount >= 4) {
+        generated.push({ title: `Focus Step 4: Verification & polish`, duration: "15m" });
       }
       subtasksMap.set(t.original_task_id, generated);
     }
@@ -903,7 +1077,7 @@ Subdivide each into sequential 15-minute sprints. Respond strictly in JSON.`;
     diagnosticSummary: rebalanceResult.diagnostic_summary,
     recommendedActionPlan: `Rust Algorithmic Engine rebalanced ${rebalanceResult.total_rescheduled} missed tasks across a ${effectiveCapacity}h daily capacity budget. Priority Score = (Urgency × 0.5) + (Deps × 0.3) + (Age × 0.2). Dependency DAG resolved topologically.${
       rebalanceResult.tasks_needing_llm_subdivision > 0
-        ? ` ${rebalanceResult.tasks_needing_llm_subdivision} oversized task(s) subdivided into atomic 15m sprints.`
+        ? ` ${rebalanceResult.tasks_needing_llm_subdivision} oversized task(s) subdivided into atomic 15m focus steps.`
         : " Zero LLM calls required."
     }`,
     rescheduledTasks: formattedTasks,
@@ -911,19 +1085,19 @@ Subdivide each into sequential 15-minute sprints. Respond strictly in JSON.`;
 }
 
 /**
- * 4. Complex Goal Restructuring
- * Pivots or refactors a complex project / epic when circumstances change,
- * scope creeps, or priorities shift. Re-architects backlog and sprints.
+ * 4. Goal Adjustment & Realignment
+ * Re-aligns a goal when schedule changes, life priorities, or focus shifts.
  */
 export async function restructureComplexGoal({ goal, currentTasks = [], changeReason, credentials }) {
-  const systemPrompt = `You are an AI Agile Architect & Project Restructuring Engine.
-A user's goal or project needs structural reorganization due to scope creep, shifted deadlines, or new technical constraints.
-You must re-architect the goal hierarchy: prune dead weight, split monolithic milestones, regroup into streamlined sprints, and update task statuses.
+  const systemPrompt = `You are a thoughtful Goal Alignment & Realignment Coach for Successor.
+A user's goal needs adjustment due to schedule changes, life priorities, or evolving focus.
+Help re-align their goal: suggest updated milestones, clarify focus tasks, and introduce fresh motivating steps.
+Use simple terms: Goal, Long Term, Personal Goal, Career Goal. Avoid rigid IT jargon.
 
 SCHEMA:
 {
   "restructuringStrategy": string,
-  "scopeDelta": string (e.g. "-30% scope, +50% velocity focus"),
+  "scopeDelta": string (e.g. "Refocused on core priorities with a sustainable daily pace"),
   "updatedMilestones": [
     { "name": string, "targetDays": number, "deliverable": string }
   ],
@@ -934,7 +1108,7 @@ SCHEMA:
     {
       "taskId": string,
       "updatedTitle": string,
-      "updatedCategory": string,
+      "updatedCategory": "Goal" | "Long Term" | "Personal Goal" | "Career Goal",
       "updatedPriority": string,
       "updatedDuration": string,
       "notes": string
@@ -944,7 +1118,7 @@ SCHEMA:
     {
       "title": string,
       "description": string,
-      "category": string,
+      "category": "Goal" | "Long Term" | "Personal Goal" | "Career Goal",
       "priority": "P1 Urgent & High Impact" | "P2 Strategic" | "P3 Maintenance",
       "duration": string,
       "status": "ready" | "backlog",

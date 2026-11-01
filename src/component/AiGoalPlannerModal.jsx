@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import {
+  generate90DayWorkplan,
   analyzeLongTermGoal,
   generateWeeklyTasks,
   rescheduleMissedTasks,
@@ -10,33 +11,33 @@ import {
 
 const PLANNER_MODES = [
   {
-    id: "goal_analysis",
-    label: "Long-Term Goal Analysis",
-    icon: "psychology_alt",
-    badge: "Strategy",
-    description: "Analyze high-level objectives, evaluate feasibility, milestone phases, and risk bottlenecks.",
-  },
-  {
-    id: "weekly_generation",
-    label: "Weekly Task Generator",
-    icon: "date_range",
-    badge: "Sprint Feed",
-    description: "Synthesize 7-day atomic workloads with durations, priorities, tags & feed directly to Firestore.",
+    id: "goal_workplan",
+    label: "Goal Workplan Planner",
+    icon: "calendar_month",
+    badge: "90-Day & Weekly",
+    description: "Generate structured 90-day daily roadmaps or 7-day weekly focus tasks directly for your task board.",
   },
   {
     id: "reschedule_missed",
-    label: "Reschedule Missed Tasks",
+    label: "Reschedule Pending Tasks",
     icon: "schedule_send",
-    badge: "Remediation",
-    description: "Diagnose stalled & rolled-over backlog tasks and redistribute them without overloading capacity.",
+    badge: "0ms Native",
+    description: "Detect pending & overdue tasks and redistribute them without overloading capacity.",
   },
   {
     id: "restructure_complex",
-    label: "Goal Restructuring",
-    icon: "account_tree",
-    badge: "Pivot Engine",
-    description: "Refactor complex goals when scope shifts or velocity drops; prune and inject high-impact tasks.",
+    label: "Goal Alignment",
+    icon: "tune",
+    badge: "Realignment",
+    description: "Adjust milestones and daily focus when your schedule, priorities, or focus shifts.",
   },
+];
+
+const GOAL_TYPE_OPTIONS = [
+  { id: "Personal Goal", label: "Personal Goal", icon: "favorite", color: "text-rose-400" },
+  { id: "Career Goal", label: "Career Goal", icon: "work", color: "text-blue-400" },
+  { id: "Long Term", label: "Long Term Goal", icon: "flag", color: "text-amber-400" },
+  { id: "Goal", label: "Core Goal", icon: "track_changes", color: "text-primary" },
 ];
 
 export default function AiGoalPlannerModal({ isOpen, onClose }) {
@@ -50,27 +51,36 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
     displayTitle,
   } = useApp();
 
-  const [activeMode, setActiveMode] = useState("weekly_generation");
+  const [activeMode, setActiveMode] = useState("goal_workplan");
+  const [planHorizon, setPlanHorizon] = useState("90_day"); // "90_day" | "7_day"
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Form inputs
   const [goalInput, setGoalInput] = useState("");
+  const [goalType, setGoalType] = useState("Personal Goal");
+  const [dailyCommitment, setDailyCommitment] = useState("1 hour / day");
   const [timeframe, setTimeframe] = useState("Next 4 Weeks");
-  const [sprintPhase, setSprintPhase] = useState("Execution & Core Velocity");
-  const [restructureReason, setRestructureReason] = useState("Scope creep and unblocking delayed deliverables");
+  const [weeklyPhase, setWeeklyPhase] = useState("Building Consistency & Daily Progress");
+  const [restructureReason, setRestructureReason] = useState("Schedule changes and focusing on primary priorities");
 
   // Output results
+  const [ninetyDayPlanResult, setNinetyDayPlanResult] = useState(null);
+  const [ninetyDayProgress, setNinetyDayProgress] = useState(null);
+  const [selectedNinetyDayIndices, setSelectedNinetyDayIndices] = useState(new Set());
+  const [activeMonthTab, setActiveMonthTab] = useState(0); // 0 = All 90, 1 = Month 1, 2 = Month 2, 3 = Month 3
+  const [activeWeekFilter, setActiveWeekFilter] = useState("all");
+  const [taskSearchQuery, setTaskSearchQuery] = useState("");
+
   const [analysisResult, setAnalysisResult] = useState(null);
-  const [generatedTasks, setGeneratedTasks] = useState([]);
+  const [generatedWeeklyTasks, setGeneratedWeeklyTasks] = useState([]);
+  const [selectedWeeklyIndices, setSelectedWeeklyIndices] = useState(new Set());
   const [rescheduleResult, setRescheduleResult] = useState(null);
   const [restructureResult, setRestructureResult] = useState(null);
 
-  // Selection states for generated tasks to commit
-  const [selectedTaskIndices, setSelectedTaskIndices] = useState(new Set());
   const [isCommitting, setIsCommitting] = useState(false);
 
-  // Resolve API key & Model from userProfile (supports custom-userdefined configs)
+  // Resolve API key & Model from userProfile
   const activeCustomConfig = Array.isArray(userProfile?.customAiConfigs)
     ? userProfile.customAiConfigs.find((c) => c.isActive) || userProfile.customAiConfigs[0]
     : null;
@@ -98,7 +108,6 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
       const isOverdue = due && due < todayDateStr;
       const isRolledOver = Boolean(t.rolledOverAt || (t.rolloverCount && t.rolloverCount > 0));
 
-      // 1. Detect Missed Tasks: status == "pending" and due_date < current_date
       if (status === "pending" && isOverdue) return true;
       if (isOverdue) return true;
       if (isRolledOver) return true;
@@ -108,7 +117,6 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
   }, [tasks, todayDateStr]);
 
   const handleRunAi = async () => {
-    // Rust Algorithmic Rebalancing executes natively without requiring an LLM API key
     if (activeMode !== "reschedule_missed" && !activeKey) {
       setError(`No API key stored for ${aiProvider.toUpperCase()}. Please configure your API key in Settings > AI & Intelligence.`);
       return;
@@ -118,42 +126,58 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
     setError(null);
 
     try {
-      if (activeMode === "goal_analysis") {
-        if (!goalInput.trim()) {
-          setError("Please describe your long-term goal to analyze.");
-          setLoading(false);
-          return;
-        }
+      if (activeMode === "goal_workplan" || activeMode === "ninety_day_plan" || activeMode === "weekly_generation") {
+        const isWeekly = activeMode === "weekly_generation" || (activeMode === "goal_workplan" && planHorizon === "7_day");
 
-        const res = await analyzeLongTermGoal({
-          goal: goalInput.trim(),
-          timeframe,
-          userContext: {
-            displayName,
-            displayTitle,
-            chronotype: userProfile?.chronotype,
-            dailyTargetBlocks: userProfile?.dailyTargetBlocks,
-          },
-          credentials,
-        });
-        setAnalysisResult(res);
-        showToast("Goal analysis generated successfully!", "success");
-      } else if (activeMode === "weekly_generation") {
-        const goal = goalInput.trim() || userProfile?.defaultProject || "Q4 Product & Velocity Sprints";
-        const res = await generateWeeklyTasks({
-          goal,
-          phase: sprintPhase,
-          activeTasks: tasks,
-          credentials,
-        });
+        if (!isWeekly) {
+          // 90-Day Full Workplan
+          if (!goalInput.trim()) {
+            setError("Please describe the 90-day goal you want to achieve.");
+            setLoading(false);
+            return;
+          }
 
-        if (Array.isArray(res?.tasks)) {
-          setGeneratedTasks(res.tasks);
-          // Default select all tasks
-          setSelectedTaskIndices(new Set(res.tasks.map((_, i) => i)));
-          showToast(`Synthesized ${res.tasks.length} weekly tasks!`, "success");
+          setNinetyDayProgress({ stage: 1, totalStages: 3, percent: 10, message: "Initializing 90-day goal architecture..." });
+
+          const result = await generate90DayWorkplan({
+            goal: goalInput.trim(),
+            goalType,
+            dailyCommitment,
+            userContext: {
+              displayName,
+              displayTitle,
+              chronotype: userProfile?.chronotype,
+            },
+            credentials,
+            onProgress: (prog) => {
+              setNinetyDayProgress(prog);
+            },
+          });
+
+          if (Array.isArray(result?.tasks) && result.tasks.length > 0) {
+            setNinetyDayPlanResult(result);
+            setSelectedNinetyDayIndices(new Set(result.tasks.map((_, i) => i)));
+            showToast(`✨ Generated full 90-day workplan (${result.tasks.length} daily steps)!`, "success");
+          } else {
+            setError("Failed to synthesize 90-day workplan tasks.");
+          }
         } else {
-          setError("Failed to parse task array from AI response.");
+          // 7-Day Weekly Focus Tasks
+          const goal = goalInput.trim() || userProfile?.defaultProject || "Active Goal Progress";
+          const res = await generateWeeklyTasks({
+            goal,
+            phase: weeklyPhase,
+            activeTasks: tasks,
+            credentials,
+          });
+
+          if (Array.isArray(res?.tasks)) {
+            setGeneratedWeeklyTasks(res.tasks);
+            setSelectedWeeklyIndices(new Set(res.tasks.map((_, i) => i)));
+            showToast(`Synthesized ${res.tasks.length} weekly tasks!`, "success");
+          } else {
+            setError("Failed to parse task array from AI response.");
+          }
         }
       } else if (activeMode === "reschedule_missed") {
         if (missedOrBacklogTasks.length === 0) {
@@ -171,12 +195,12 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
         setRescheduleResult(res);
         showToast(
           res.engine === "rust_algorithmic_rebalancing"
-            ? `⚡ Rust Algorithmic Rebalancer slotted ${res.totalRescheduled} tasks!`
+            ? `⚡ Slotted ${res.totalRescheduled} tasks without overloading capacity!`
             : "Task rescheduling remediation generated!",
           "success"
         );
       } else if (activeMode === "restructure_complex") {
-        const goal = goalInput.trim() || "Active Workstation Roadmap";
+        const goal = goalInput.trim() || "Active Goal Roadmaps";
         const res = await restructureComplexGoal({
           goal,
           currentTasks: tasks,
@@ -184,20 +208,91 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
           credentials,
         });
         setRestructureResult(res);
-        showToast("Goal restructure plan generated!", "success");
+        showToast("Goal realignment plan generated!", "success");
       }
     } catch (err) {
       console.error("AI Goal Planner Execution Error:", err);
       setError(err.message || "Failed to execute AI Goal operation.");
     } finally {
       setLoading(false);
+      setNinetyDayProgress(null);
     }
   };
 
-  // Commit selected weekly generated tasks directly to Firestore
+  // Commit 90-Day Tasks to Task Board
+  const handleCommitNinetyDayPlan = async (placementStrategy = "smart") => {
+    if (!ninetyDayPlanResult?.tasks || ninetyDayPlanResult.tasks.length === 0) return;
+    const toCommit = ninetyDayPlanResult.tasks.filter((_, idx) => selectedNinetyDayIndices.has(idx));
+
+    if (toCommit.length === 0) {
+      setError("Please select at least one day's task to import into your workspace.");
+      return;
+    }
+
+    setIsCommitting(true);
+    try {
+      const preparedTasks = toCommit.map((t) => {
+        // Smart Strategy: Day 1 (or offset 0) is "ready" for Today, future days go to "backlog" with scheduled calendar dates
+        let status = "backlog";
+        let dateValue = t.date || "Backlog";
+
+        if (placementStrategy === "smart") {
+          if (t.dayOffset === 0) {
+            status = "ready";
+            dateValue = "Today";
+          } else {
+            status = "backlog";
+            dateValue = t.date;
+          }
+        } else if (placementStrategy === "today_all") {
+          status = "ready";
+          dateValue = "Today";
+        } else if (placementStrategy === "backlog_all") {
+          status = "backlog";
+          dateValue = t.date;
+        }
+
+        return {
+          title: t.title,
+          description: t.description || `Part of 90-Day Goal: ${ninetyDayPlanResult.goal} (${t.stageTitle || "Stage"}).`,
+          category: t.category || goalType || "Goal",
+          priority: t.priority || "P2 Strategic",
+          duration: t.duration || "45 min",
+          effort: t.effort || "⚡⚡ Med",
+          tags: Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : ["#90DayGoal", `#${(t.category || "Goal").replace(/\s+/g, "")}`],
+          status,
+          date: dateValue,
+          assignedDate: status === "ready" ? todayDateStr : t.date,
+          dayOffset: t.dayOffset,
+          dayNumber: t.dayNumber,
+          isHighlight: !!t.isHighlight,
+          subtasks: Array.isArray(t.subtasks)
+            ? t.subtasks.map((st, i) => ({
+                id: `st-90-${Date.now()}-${t.dayNumber}-${i}`,
+                title: st.title || st,
+                duration: st.duration || "15m",
+                completed: false,
+              }))
+            : "0/1",
+        };
+      });
+
+      await createMultipleTasks(preparedTasks);
+      setNinetyDayPlanResult(null);
+      showToast(`🎯 Injected ${preparedTasks.length} daily tasks into your Task Board!`, "success");
+      onClose();
+    } catch (err) {
+      console.error("Failed to commit 90-day tasks to database:", err);
+      setError("Failed to save tasks to database: " + err.message);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  // Commit Weekly Generated Tasks
   const handleCommitWeeklyTasks = async () => {
-    if (generatedTasks.length === 0) return;
-    const toCommit = generatedTasks.filter((_, idx) => selectedTaskIndices.has(idx));
+    if (generatedWeeklyTasks.length === 0) return;
+    const toCommit = generatedWeeklyTasks.filter((_, idx) => selectedWeeklyIndices.has(idx));
     if (toCommit.length === 0) {
       setError("Please select at least one task to import into your workspace.");
       return;
@@ -208,14 +303,14 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
       await createMultipleTasks(
         toCommit.map((t) => ({
           title: t.title,
-          description: t.description || `Generated for ${t.day || "Sprint"}.`,
-          category: t.category || "Work Sprint",
+          description: t.description || `Generated for ${t.day || "Day"}.`,
+          category: t.category || "Goal",
           priority: t.priority || "P1 Urgent & High Impact",
           duration: t.duration || "30 min",
           effort: t.effort || "⚡⚡ Med",
-          tags: t.tags || ["#AISprint"],
+          tags: t.tags || ["#Goal"],
           status: t.dayOffset === 0 ? "ready" : "ready",
-          date: t.dayOffset === 0 ? "Today" : t.day || "Sprint",
+          date: t.dayOffset === 0 ? "Today" : t.day || "Goal Focus",
           isHighlight: !!t.isHighlight,
           subtasks: Array.isArray(t.subtasks)
             ? t.subtasks.map((st, i) => ({
@@ -227,17 +322,17 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
             : "0/1",
         }))
       );
-      setGeneratedTasks([]);
+      setGeneratedWeeklyTasks([]);
       onClose();
     } catch (err) {
-      console.error("Failed to commit tasks to database:", err);
-      setError("Failed to save tasks to database: " + err.message);
+      console.error("Failed to commit weekly tasks:", err);
+      setError("Failed to save tasks: " + err.message);
     } finally {
       setIsCommitting(false);
     }
   };
 
-  // Apply Rescheduled Tasks updates to existing Firestore documents
+  // Apply Rescheduled Tasks updates
   const handleApplyRescheduledTasks = async () => {
     if (!rescheduleResult?.rescheduledTasks) return;
     setIsCommitting(true);
@@ -261,12 +356,11 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
               }))
             : undefined,
         };
-        // Clean undefined
         Object.keys(updates).forEach((k) => updates[k] === undefined && delete updates[k]);
         await updateTask(item.originalTaskId, updates);
         count++;
       }
-      showToast(`Updated & rescheduled ${count} tasks in Cloud Firestore!`, "success");
+      showToast(`Updated & rescheduled ${count} tasks on your board!`, "success");
       setRescheduleResult(null);
       onClose();
     } catch (err) {
@@ -285,11 +379,11 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
       await createMultipleTasks(
         restructureResult.newTasksToInject.map((t) => ({
           title: t.title,
-          description: t.description || "Created via Goal Restructuring.",
-          category: t.category || "Work Sprint",
+          description: t.description || "Created via Goal Alignment.",
+          category: t.category || "Goal",
           priority: t.priority || "P1 Urgent & High Impact",
           duration: t.duration || "45 min",
-          effort: t.effort || "⚡⚡⚡ Deep",
+          effort: t.effort || "⚡⚡ Med",
           status: t.status || "ready",
           date: t.status === "backlog" ? "Backlog" : "Today",
         }))
@@ -297,34 +391,63 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
       setRestructureResult(null);
       onClose();
     } catch (err) {
-      setError("Failed to commit new restructured tasks: " + err.message);
+      setError("Failed to commit new tasks: " + err.message);
     } finally {
       setIsCommitting(false);
     }
   };
 
+  // Filtered 90-day tasks based on Month tab, Week, and search
+  const filteredNinetyDayTasks = useMemo(() => {
+    if (!ninetyDayPlanResult?.tasks) return [];
+    return ninetyDayPlanResult.tasks.filter((t, idx) => {
+      // Month tab filter: 0 = All 90, 1 = Month 1, 2 = Month 2, 3 = Month 3, 4 = Week 1 (Days 1–7)
+      if (activeMonthTab === 1 && t.monthStage !== 1) return false;
+      if (activeMonthTab === 2 && t.monthStage !== 2) return false;
+      if (activeMonthTab === 3 && t.monthStage !== 3) return false;
+      if (activeMonthTab === 4 && t.dayNumber > 7) return false;
+
+      // Week filter
+      if (activeWeekFilter !== "all") {
+        const weekNum = Math.ceil(t.dayNumber / 7);
+        if (weekNum !== Number(activeWeekFilter)) return false;
+      }
+
+      // Search query
+      if (taskSearchQuery.trim()) {
+        const q = taskSearchQuery.toLowerCase();
+        const matchesTitle = t.title?.toLowerCase().includes(q);
+        const matchesDesc = t.description?.toLowerCase().includes(q);
+        const matchesCategory = t.category?.toLowerCase().includes(q);
+        if (!matchesTitle && !matchesDesc && !matchesCategory) return false;
+      }
+
+      return true;
+    });
+  }, [ninetyDayPlanResult, activeMonthTab, activeWeekFilter, taskSearchQuery]);
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-4xl bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/20 flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="w-full max-w-5xl bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/20 flex flex-col max-h-[92vh] overflow-hidden">
         {/* MODAL HEADER */}
         <div className="px-6 py-4 border-b border-surface-container flex items-center justify-between bg-surface-container-lowest shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center shadow-xs">
-              <span className="material-symbols-outlined text-[24px]">psychology_alt</span>
+              <span className="material-symbols-outlined text-[24px]">flag</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-headline-sm font-bold text-on-surface leading-tight">
-                  AI Goal Planner &amp; Task Generator
+                  AI Goal Planner &amp; Workplan Generator
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary-fixed text-on-secondary-fixed">
-                  Flagship AI
+                  90-Day &amp; Weekly
                 </span>
               </div>
               <p className="text-body-sm text-outline text-[12px] flex items-center gap-1.5 mt-0.5">
-                <span>Active Engine:</span>
+                <span>Active AI:</span>
                 <strong className="text-primary font-semibold uppercase">{activeCustomConfig?.name || aiProvider}</strong>
                 <span>•</span>
                 <span className="font-tabular-mono text-on-surface-variant font-medium">{aiModel}</span>
@@ -356,8 +479,8 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        {/* 4 CORE CAPABILITIES NAVIGATION TABS */}
-        <div className="grid grid-cols-2 md:grid-cols-4 bg-surface-container-low border-b border-outline-variant/15 p-1.5 gap-1 shrink-0">
+        {/* 3 CORE NAVIGATION TABS */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 bg-surface-container-low border-b border-outline-variant/15 p-1.5 gap-1 shrink-0">
           {PLANNER_MODES.map((m) => {
             const isActive = activeMode === m.id;
             return (
@@ -423,35 +546,119 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* MODE 1: LONG TERM GOAL ANALYSIS */}
-          {activeMode === "goal_analysis" && (
+          {/* MODE 1: UNIFIED GOAL WORKPLAN PLANNER (90-DAY ROADMAP & 7-DAY FOCUS) */}
+          {(activeMode === "goal_workplan" || activeMode === "ninety_day_plan" || activeMode === "weekly_generation") && (
             <div className="space-y-4">
-              <div className="bg-surface-container-low p-4 rounded-xl space-y-3 border border-outline-variant/10">
-                <label className="block text-label-md font-semibold text-on-surface">
-                  High-Level Objective or North-Star Goal
-                </label>
-                <textarea
-                  rows={3}
-                  value={goalInput}
-                  onChange={(e) => setGoalInput(e.target.value)}
-                  placeholder="e.g. Build and launch a cross-platform desktop task management app with AI integration within 8 weeks..."
-                  className="w-full px-3.5 py-2.5 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none focus:ring-2 focus:ring-primary/20"
-                />
+              <div className="bg-surface-container-low p-4 rounded-xl space-y-3.5 border border-outline-variant/10">
+                {/* Horizon Scope Toggle */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-outline-variant/10">
+                  <div>
+                    <span className="text-[11px] font-semibold text-outline uppercase tracking-wider block">
+                      Planning Horizon & Scope
+                    </span>
+                    <span className="text-body-sm font-semibold text-on-surface">
+                      {planHorizon === "90_day" ? "90-Day Comprehensive Roadmap" : "7-Day Tactical Schedule"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 p-1 bg-surface-container-lowest rounded-lg border border-outline-variant/15 w-fit">
+                    <button
+                      type="button"
+                      onClick={() => setPlanHorizon("90_day")}
+                      className={`px-3 py-1.5 rounded-md text-[12px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        planHorizon === "90_day"
+                          ? "bg-primary text-on-primary shadow-xs"
+                          : "text-outline hover:text-on-surface hover:bg-surface-container-high/50"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[15px]">calendar_month</span>
+                      <span>90-Day Roadmap (Flagship)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlanHorizon("7_day")}
+                      className={`px-3 py-1.5 rounded-md text-[12px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        planHorizon === "7_day"
+                          ? "bg-primary text-on-primary shadow-xs"
+                          : "text-outline hover:text-on-surface hover:bg-surface-container-high/50"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[15px]">date_range</span>
+                      <span>7-Day Focus</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-label-md font-semibold text-on-surface mb-1">
+                      {planHorizon === "90_day" ? "What is your 90-Day Goal?" : "What is your Weekly Focus Goal?"}
+                    </label>
+                    <input
+                      type="text"
+                      value={goalInput}
+                      onChange={(e) => setGoalInput(e.target.value)}
+                      placeholder={
+                        planHorizon === "90_day"
+                          ? "e.g. Master conversational Spanish, Run a 10K, or Build my Career Portfolio"
+                          : "e.g. Daily workout habit and 3 healthy meals routine"
+                      }
+                      className="w-full px-3.5 py-2.5 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-label-md font-semibold text-on-surface mb-1">
+                      Goal Category
+                    </label>
+                    <select
+                      value={goalType}
+                      onChange={(e) => setGoalType(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none cursor-pointer"
+                    >
+                      {GOAL_TYPE_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div>
-                    <label className="text-[11px] font-semibold text-outline uppercase tracking-wider block mb-1">
-                      Time Horizon
-                    </label>
-                    <select
-                      value={timeframe}
-                      onChange={(e) => setTimeframe(e.target.value)}
-                      className="w-full px-3 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none cursor-pointer"
-                    >
-                      <option value="Next 2 to 4 Weeks">Next 2 to 4 Weeks (Sprint Pace)</option>
-                      <option value="Quarterly (8 to 12 Weeks)">Quarterly (8 to 12 Weeks)</option>
-                      <option value="Multi-Month Epic (6 Months)">Multi-Month Epic (6 Months)</option>
-                    </select>
+                    {planHorizon === "90_day" ? (
+                      <>
+                        <label className="block text-[11px] font-semibold text-outline uppercase tracking-wider mb-1">
+                          Daily Time Commitment
+                        </label>
+                        <select
+                          value={dailyCommitment}
+                          onChange={(e) => setDailyCommitment(e.target.value)}
+                          className="w-full px-3 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none cursor-pointer"
+                        >
+                          <option value="30-45 min / day">30–45 min / day (Light &amp; Steady)</option>
+                          <option value="1 hour / day">1 hour / day (Recommended Balance)</option>
+                          <option value="1.5-2 hours / day">1.5–2 hours / day (Deep Immersion)</option>
+                          <option value="2+ hours / day">2+ hours / day (Intensive Acceleration)</option>
+                        </select>
+                      </>
+                    ) : (
+                      <>
+                        <label className="block text-[11px] font-semibold text-outline uppercase tracking-wider mb-1">
+                          Focus Phase
+                        </label>
+                        <select
+                          value={weeklyPhase}
+                          onChange={(e) => setWeeklyPhase(e.target.value)}
+                          className="w-full px-3 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none cursor-pointer"
+                        >
+                          <option value="Building Consistency & Daily Progress">Building Consistency &amp; Daily Progress</option>
+                          <option value="Core Focus & Acceleration">Core Focus &amp; Acceleration</option>
+                          <option value="Review, Completion & Habit Formation">Review, Completion &amp; Habit Formation</option>
+                        </select>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex items-end">
@@ -462,189 +669,290 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                       className="w-full py-2.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
                     >
                       <span className={`material-symbols-outlined text-[18px] ${loading ? "animate-spin" : ""}`}>
-                        {loading ? "sync" : "neurology"}
+                        {loading ? "sync" : "auto_awesome"}
                       </span>
-                      <span>{loading ? "Analyzing Architecture..." : "Analyze Long-Term Goal"}</span>
+                      <span>
+                        {loading
+                          ? planHorizon === "90_day"
+                            ? "Generating 90-Day Plan..."
+                            : "Generating Weekly Plan..."
+                          : planHorizon === "90_day"
+                          ? "Generate Full 90-Day Daily Workplan"
+                          : "Generate 7-Day Daily Tasks"}
+                      </span>
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* Analysis Output Result Card */}
-              {analysisResult && (
-                <div className="p-5 rounded-2xl bg-surface-container-lowest border border-primary/20 shadow-sm space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-outline-variant/10">
-                    <div>
-                      <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
-                        Decomposition Blueprint
+                {/* Progressive Generation Status Bar */}
+                {loading && ninetyDayProgress && (
+                  <div className="pt-2 border-t border-outline-variant/10 space-y-2">
+                    <div className="flex items-center justify-between text-[12px]">
+                      <span className="font-semibold text-primary flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px] animate-spin">refresh</span>
+                        <span>{ninetyDayProgress.message || "Generating day-by-day roadmap..."}</span>
                       </span>
-                      <h3 className="text-headline-sm font-bold text-on-surface">
-                        {analysisResult.goalTitle || "Strategic Goal Breakdown"}
-                      </h3>
+                      <span className="font-mono text-outline font-bold">{ninetyDayProgress.percent || 30}%</span>
                     </div>
-                    <div className="flex items-center gap-2 font-tabular-mono">
-                      <div className="px-3 py-1 rounded-full bg-secondary-fixed/40 text-secondary text-label-sm font-semibold flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[15px]">verified</span>
-                        <span>Feasibility: {analysisResult.feasibilityScore || 85}%</span>
-                      </div>
-                      <div className="px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-label-sm font-medium">
-                        ⏱️ ~{analysisResult.recommendedCadenceHours || 15}h / week
-                      </div>
+                    <div className="w-full h-2 rounded-full bg-surface-container-high overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-300"
+                        style={{ width: `${Math.max(5, ninetyDayProgress.percent || 20)}%` }}
+                      />
                     </div>
                   </div>
+                )}
+              </div>
 
-                  {analysisResult.summary && (
-                    <p className="text-body-sm text-on-surface-variant leading-relaxed">
-                      {analysisResult.summary}
-                    </p>
-                  )}
-
-                  {/* Strategic Phases */}
-                  {Array.isArray(analysisResult.strategicPhases) && (
-                    <div className="space-y-2">
-                      <h4 className="text-label-sm font-bold uppercase tracking-wider text-outline">
-                        Execution Phases &amp; Milestones
-                      </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                        {analysisResult.strategicPhases.map((phase, idx) => (
-                          <div
-                            key={idx}
-                            className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/10 flex flex-col justify-between"
-                          >
-                            <div>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">
-                                Phase {phase.phaseIndex || idx + 1} • {phase.durationWeeks || 2}w
-                              </span>
-                              <h5 className="font-semibold text-body-md text-on-surface mt-1.5 leading-snug">
-                                {phase.title}
-                              </h5>
-                              <p className="text-[12px] text-outline mt-1 leading-snug">{phase.objective}</p>
-                            </div>
-                            <div className="mt-3 pt-2 border-t border-outline-variant/10 text-[11px] text-secondary font-medium">
-                              🎯 {phase.keyDeliverable}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Seed Sprints Direct Import */}
-                  {Array.isArray(analysisResult.recommendedInitialSprints) && (
-                    <div className="pt-2 border-t border-outline-variant/10">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-label-sm font-bold uppercase tracking-wider text-outline">
-                          Recommended Kickoff Sprints
-                        </h4>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setIsCommitting(true);
-                            try {
-                              await createMultipleTasks(
-                                analysisResult.recommendedInitialSprints.map((s) => ({
-                                  title: s.title,
-                                  category: s.category || "Deep Work",
-                                  priority: s.priority || "P1 Urgent & High Impact",
-                                  duration: s.estimatedDuration || "45 min",
-                                  effort: s.effort || "⚡⚡⚡ Deep",
-                                  status: "ready",
-                                  date: "Today",
-                                }))
-                              );
-                              onClose();
-                            } catch (e) {
-                              setError(e.message);
-                            } finally {
-                              setIsCommitting(false);
-                            }
-                          }}
-                          disabled={isCommitting}
-                          className="px-3 py-1 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-sm font-semibold text-[12px] flex items-center gap-1 cursor-pointer transition-all"
-                        >
-                          <span className="material-symbols-outlined text-[15px]">input</span>
-                          <span>Import Sprints to Today</span>
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {analysisResult.recommendedInitialSprints.map((s, i) => (
-                          <div
-                            key={i}
-                            className="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/10 flex items-center justify-between text-body-sm"
-                          >
-                            <span className="font-medium text-on-surface truncate pr-2">{s.title}</span>
-                            <span className="text-[11px] font-tabular-mono text-outline shrink-0">
-                              {s.estimatedDuration || "45m"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              {/* Optional Result Switcher if both 90-day and 7-day outputs exist */}
+              {ninetyDayPlanResult && generatedWeeklyTasks.length > 0 && (
+                <div className="flex items-center justify-between p-2 rounded-xl bg-surface-container-low border border-outline-variant/10">
+                  <span className="text-[12px] font-semibold text-on-surface px-2">Generated Results Available:</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPlanHorizon("90_day")}
+                      className={`px-3 py-1 rounded-lg text-[12px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        planHorizon === "90_day"
+                          ? "bg-primary text-on-primary shadow-xs"
+                          : "text-outline hover:text-on-surface hover:bg-surface-container-high/50"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[14px]">calendar_month</span>
+                      <span>90-Day Workplan ({ninetyDayPlanResult.tasks.length} Days)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlanHorizon("7_day")}
+                      className={`px-3 py-1 rounded-lg text-[12px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        planHorizon === "7_day"
+                          ? "bg-primary text-on-primary shadow-xs"
+                          : "text-outline hover:text-on-surface hover:bg-surface-container-high/50"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[14px]">date_range</span>
+                      <span>Weekly Tasks ({generatedWeeklyTasks.length})</span>
+                    </button>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* MODE 2: WEEKLY TASK GENERATION */}
-          {activeMode === "weekly_generation" && (
-            <div className="space-y-4">
-              <div className="bg-surface-container-low p-4 rounded-xl space-y-3 border border-outline-variant/10">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-label-md font-semibold text-on-surface mb-1">
-                      Sprint Target / Focus Goal
-                    </label>
-                    <input
-                      type="text"
-                      value={goalInput}
-                      onChange={(e) => setGoalInput(e.target.value)}
-                      placeholder="e.g. Successor v0.1.3 Platform Polishing & Keyboard Shortcuts"
-                      className="w-full px-3.5 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none focus:ring-2 focus:ring-primary/20"
-                    />
+              {/* 90-Day Workplan Results & Task Board Injection */}
+              {ninetyDayPlanResult && Array.isArray(ninetyDayPlanResult.tasks) && (planHorizon === "90_day" || generatedWeeklyTasks.length === 0) && (
+                <div className="p-5 rounded-2xl bg-surface-container-lowest border border-primary/25 shadow-sm space-y-4">
+                  {/* Top Bar: Summary & Action Buttons */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-outline-variant/10">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                          {ninetyDayPlanResult.goalType || "Goal"}
+                        </span>
+                        <span className="text-[12px] text-outline">
+                          {ninetyDayPlanResult.tasks.length} Daily Steps Generated (Starting {ninetyDayPlanResult.startDate})
+                        </span>
+                      </div>
+                      <h3 className="text-headline-sm font-bold text-on-surface mt-0.5">
+                        {ninetyDayPlanResult.goal}
+                      </h3>
+                    </div>
+
+                    {/* Feed to Board Actions */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleCommitNinetyDayPlan("smart")}
+                        disabled={isCommitting || selectedNinetyDayIndices.size === 0}
+                        className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-sm font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                        title="Day 1 goes to Ready for Today; Days 2-90 go to Backlog with assigned dates."
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {isCommitting ? "sync" : "input"}
+                        </span>
+                        <span>
+                          {isCommitting ? "Feeding to Board..." : `Feed ${selectedNinetyDayIndices.size} Days to Board (Smart)`}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCommitNinetyDayPlan("backlog_all")}
+                        disabled={isCommitting || selectedNinetyDayIndices.size === 0}
+                        className="px-3 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-[12px] font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">inventory_2</span>
+                        <span>All to Backlog</span>
+                      </button>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-label-md font-semibold text-on-surface mb-1">
-                      Current Sprint Phase
-                    </label>
-                    <select
-                      value={sprintPhase}
-                      onChange={(e) => setSprintPhase(e.target.value)}
-                      className="w-full px-3 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none cursor-pointer"
-                    >
-                      <option value="Architecture & Planning">Architecture &amp; Planning</option>
-                      <option value="Execution & Core Velocity">Execution &amp; Core Velocity</option>
-                      <option value="Testing, Hardening & Ship">Testing, Hardening &amp; Ship</option>
-                    </select>
+                  {/* Horizon Tabs & Filters */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-body-sm">
+                    {/* Horizon Months */}
+                    <div className="flex items-center gap-1 bg-surface-container-low p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setActiveMonthTab(0)}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
+                          activeMonthTab === 0
+                            ? "bg-surface-container-lowest text-primary shadow-xs font-bold"
+                            : "text-outline hover:text-on-surface"
+                        }`}
+                      >
+                        All 90 Days ({ninetyDayPlanResult.tasks.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveMonthTab(1)}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
+                          activeMonthTab === 1
+                            ? "bg-surface-container-lowest text-primary shadow-xs font-bold"
+                            : "text-outline hover:text-on-surface"
+                        }`}
+                      >
+                        Month 1 (Days 1–30)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveMonthTab(2)}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
+                          activeMonthTab === 2
+                            ? "bg-surface-container-lowest text-primary shadow-xs font-bold"
+                            : "text-outline hover:text-on-surface"
+                        }`}
+                      >
+                        Month 2 (Days 31–60)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveMonthTab(3)}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
+                          activeMonthTab === 3
+                            ? "bg-surface-container-lowest text-primary shadow-xs font-bold"
+                            : "text-outline hover:text-on-surface"
+                        }`}
+                      >
+                        Month 3 (Days 61–90)
+                      </button>
+                    </div>
+
+                    {/* Filter controls */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Search daily tasks..."
+                        value={taskSearchQuery}
+                        onChange={(e) => setTaskSearchQuery(e.target.value)}
+                        className="px-2.5 py-1 text-[12px] bg-surface-container-low text-on-surface rounded-lg border border-outline-variant/15 outline-none w-36"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedNinetyDayIndices.size === ninetyDayPlanResult.tasks.length) {
+                            setSelectedNinetyDayIndices(new Set());
+                          } else {
+                            setSelectedNinetyDayIndices(new Set(ninetyDayPlanResult.tasks.map((_, i) => i)));
+                          }
+                        }}
+                        className="text-[12px] text-outline hover:text-on-surface transition-colors cursor-pointer"
+                      >
+                        {selectedNinetyDayIndices.size === ninetyDayPlanResult.tasks.length ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Day Tasks Matrix */}
+                  <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                    {filteredNinetyDayTasks.map((task) => {
+                      const originalIdx = task.dayNumber - 1;
+                      const isChecked = selectedNinetyDayIndices.has(originalIdx);
+
+                      return (
+                        <div
+                          key={task.dayNumber}
+                          onClick={() => {
+                            const next = new Set(selectedNinetyDayIndices);
+                            if (next.has(originalIdx)) next.delete(originalIdx);
+                            else next.add(originalIdx);
+                            setSelectedNinetyDayIndices(next);
+                          }}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                            isChecked
+                              ? "bg-surface-container-high/60 border-primary/30 ring-1 ring-primary/20"
+                              : "bg-surface-container-low border-outline-variant/10 opacity-70"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            className="mt-1 h-4 w-4 rounded accent-primary cursor-pointer shrink-0"
+                          />
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">
+                                Day {task.dayNumber}
+                              </span>
+                              <span className="text-[11px] font-mono text-outline">
+                                {task.date} ({task.dayName})
+                              </span>
+                              <span className="text-[11px] font-semibold text-secondary">
+                                • {task.category}
+                              </span>
+                              <span className="text-[11px] font-tabular-mono text-outline">
+                                • {task.duration}
+                              </span>
+                              {task.isHighlight && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                  <span className="material-symbols-outlined text-[11px]">star</span>
+                                  Milestone Day
+                                </span>
+                              )}
+                            </div>
+
+                            <h4 className="font-semibold text-body-md text-on-surface leading-snug">
+                              {task.title}
+                            </h4>
+
+                            {task.description && (
+                              <p className="text-[12px] text-on-surface-variant line-clamp-1 mt-0.5">
+                                {task.description}
+                              </p>
+                            )}
+
+                            {/* Subtask checklist */}
+                            {Array.isArray(task.subtasks) && task.subtasks.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2 pt-1.5 border-t border-outline-variant/10">
+                                {task.subtasks.map((st, si) => (
+                                  <span
+                                    key={si}
+                                    className="px-2 py-0.5 rounded-md bg-surface-container text-[11px] text-outline font-mono flex items-center gap-1"
+                                  >
+                                    <span>↳ {st.title || st}</span>
+                                    {st.duration && <span className="text-primary font-bold">({st.duration})</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
+              )}
 
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="button"
-                    onClick={handleRunAi}
-                    disabled={loading}
-                    className="px-5 py-2.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  >
-                    <span className={`material-symbols-outlined text-[18px] ${loading ? "animate-spin" : ""}`}>
-                      {loading ? "sync" : "auto_awesome"}
-                    </span>
-                    <span>{loading ? "Synthesizing Sprint Plan..." : "Generate 7-Day Sprint Workload"}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Generated Weekly Tasks List */}
-              {generatedTasks.length > 0 && (
+              {/* Weekly Tasks List (7-Day Focus) */}
+              {generatedWeeklyTasks.length > 0 && (planHorizon === "7_day" || !ninetyDayPlanResult) && (
                 <div className="p-4 rounded-2xl bg-surface-container-lowest border border-primary/20 shadow-sm space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-outline-variant/10">
                     <div>
                       <h3 className="font-headline-sm text-body-md font-bold text-on-surface">
-                        Generated Weekly Tasks ({generatedTasks.length})
+                        Generated Weekly Tasks ({generatedWeeklyTasks.length})
                       </h3>
                       <p className="text-[12px] text-outline">
-                        Select tasks to commit and inject directly into your Cloud Firestore database
+                        Select tasks to inject directly into your Task Board
                       </p>
                     </div>
 
@@ -652,45 +960,44 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                       <button
                         type="button"
                         onClick={() => {
-                          if (selectedTaskIndices.size === generatedTasks.length) {
-                            setSelectedTaskIndices(new Set());
+                          if (selectedWeeklyIndices.size === generatedWeeklyTasks.length) {
+                            setSelectedWeeklyIndices(new Set());
                           } else {
-                            setSelectedTaskIndices(new Set(generatedTasks.map((_, i) => i)));
+                            setSelectedWeeklyIndices(new Set(generatedWeeklyTasks.map((_, i) => i)));
                           }
                         }}
                         className="text-[12px] text-outline hover:text-on-surface transition-colors cursor-pointer"
                       >
-                        {selectedTaskIndices.size === generatedTasks.length ? "Deselect All" : "Select All"}
+                        {selectedWeeklyIndices.size === generatedWeeklyTasks.length ? "Deselect All" : "Select All"}
                       </button>
 
                       <button
                         type="button"
                         onClick={handleCommitWeeklyTasks}
-                        disabled={isCommitting || selectedTaskIndices.size === 0}
+                        disabled={isCommitting || selectedWeeklyIndices.size === 0}
                         className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-sm font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
                       >
                         <span className="material-symbols-outlined text-[16px]">
-                          {isCommitting ? "sync" : "cloud_upload"}
+                          {isCommitting ? "sync" : "input"}
                         </span>
                         <span>
-                          {isCommitting ? "Feeding to DB..." : `Inject ${selectedTaskIndices.size} Tasks to DB`}
+                          {isCommitting ? "Feeding to Board..." : `Inject ${selectedWeeklyIndices.size} Tasks to Board`}
                         </span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Task list with checkboxes */}
                   <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                    {generatedTasks.map((task, idx) => {
-                      const isChecked = selectedTaskIndices.has(idx);
+                    {generatedWeeklyTasks.map((task, idx) => {
+                      const isChecked = selectedWeeklyIndices.has(idx);
                       return (
                         <div
                           key={idx}
                           onClick={() => {
-                            const next = new Set(selectedTaskIndices);
+                            const next = new Set(selectedWeeklyIndices);
                             if (next.has(idx)) next.delete(idx);
                             else next.add(idx);
-                            setSelectedTaskIndices(next);
+                            setSelectedWeeklyIndices(next);
                           }}
                           className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
                             isChecked
@@ -709,18 +1016,12 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">
                                 {task.day || "Day"}
                               </span>
-                              <span className="text-[11px] font-semibold text-outline">
-                                {task.category}
+                              <span className="text-[11px] font-semibold text-secondary">
+                                {task.category || "Goal"}
                               </span>
-                              <span className="text-[11px] font-tabular-mono text-secondary">
+                              <span className="text-[11px] font-tabular-mono text-outline">
                                 • {task.duration || "30 min"}
                               </span>
-                              {task.isHighlight && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                                  <span className="material-symbols-outlined text-[11px] fill-1">star</span>
-                                  Highlight
-                                </span>
-                              )}
                             </div>
                             <h4 className="font-semibold text-body-md text-on-surface leading-snug">
                               {task.title}
@@ -729,20 +1030,6 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                               <p className="text-[12px] text-on-surface-variant line-clamp-1 mt-0.5">
                                 {task.description}
                               </p>
-                            )}
-
-                            {/* Subtask preview */}
-                            {Array.isArray(task.subtasks) && task.subtasks.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mt-2 pt-1.5 border-t border-outline-variant/10">
-                                {task.subtasks.map((st, i) => (
-                                  <span
-                                    key={i}
-                                    className="px-2 py-0.5 rounded-md bg-surface-container text-[11px] text-outline font-tabular-mono"
-                                  >
-                                    ↳ {st.title || st} ({st.duration || "15m"})
-                                  </span>
-                                ))}
-                              </div>
                             )}
                           </div>
                         </div>
@@ -754,7 +1041,7 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* MODE 3: RESCHEDULE MISSED TASKS (Rust Algorithmic Rebalancing) */}
+          {/* MODE 3: RESCHEDULE PENDING TASKS */}
           {activeMode === "reschedule_missed" && (
             <div className="space-y-4">
               <div className="bg-surface-container-low p-4 rounded-xl space-y-3 border border-outline-variant/10">
@@ -762,14 +1049,14 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-label-md font-semibold text-on-surface">
-                        Handling Missed Tasks: Rust Algorithmic Rebalancing
+                        Task Rescheduling &amp; Capacity Redistribution
                       </h3>
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
-                        ⚡ Rust Native (0ms)
+                        ⚡ 0ms Native
                       </span>
                     </div>
                     <p className="text-[12px] text-outline mt-0.5">
-                      {missedOrBacklogTasks.length} uncompleted tasks detected (status == &quot;pending&quot; &amp; due date overdue, or backlog rollover)
+                      {missedOrBacklogTasks.length} uncompleted tasks detected needing schedule redistribution
                     </p>
                   </div>
 
@@ -782,18 +1069,8 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                     <span className={`material-symbols-outlined text-[16px] ${loading ? "animate-spin" : ""}`}>
                       {loading ? "sync" : "tune"}
                     </span>
-                    <span>{loading ? "Rebalancing..." : "Run Rust Algorithmic Rebalancing"}</span>
+                    <span>{loading ? "Rebalancing..." : "Reschedule Tasks"}</span>
                   </button>
-                </div>
-
-                {/* Algorithmic Formula Indicator */}
-                <div className="p-2.5 rounded-lg bg-surface-container border border-outline-variant/10 flex flex-wrap items-center justify-between gap-2 text-[11px] text-on-surface-variant font-mono">
-                  <span>
-                    Priority Score = (Urgency &times; 0.5) + (Dependency Count &times; 0.3) + (Age in Days &times; 0.2)
-                  </span>
-                  <span className="text-outline font-sans text-[11px]">
-                    4.0h/day capacity slots &bull; Topological DAG order &bull; LLM fallback only for &gt;90m tasks
-                  </span>
                 </div>
 
                 {missedOrBacklogTasks.length > 0 ? (
@@ -807,17 +1084,12 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                           pending_actions
                         </span>
                         <span>{t.title}</span>
-                        {(t.due_date || t.dueDate || t.date) && (
-                          <span className="text-[10px] text-outline font-mono">
-                            due {t.due_date || t.dueDate || t.date}
-                          </span>
-                        )}
                       </span>
                     ))}
                   </div>
                 ) : (
                   <div className="p-4 rounded-lg bg-surface-container text-center text-outline text-[13px]">
-                    🎉 Excellent velocity! No overdue or missed pending tasks detected.
+                    🎉 Excellent progress! No overdue or pending tasks detected.
                   </div>
                 )}
               </div>
@@ -827,28 +1099,8 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                 <div className="p-5 rounded-2xl bg-surface-container-lowest border border-primary/20 shadow-sm space-y-4">
                   <div className="flex items-center justify-between pb-3 border-b border-outline-variant/10">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
-                          Rust Rebalance Plan
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                          rescheduleResult.overloadRiskLevel === "Critical"
-                            ? "bg-rose-500/10 text-rose-500 border border-rose-500/20"
-                            : rescheduleResult.overloadRiskLevel === "Medium"
-                            ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-                            : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
-                        }`}>
-                          Risk: {rescheduleResult.overloadRiskLevel || "Low"}
-                        </span>
-                        {rescheduleResult.tasksNeedingLlmSubdivision > 0 && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[11px]">psychology</span>
-                            <span>{rescheduleResult.tasksNeedingLlmSubdivision} LLM Subdivided</span>
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="font-headline-sm text-body-md font-bold text-on-surface mt-0.5">
-                        {rescheduleResult.totalRescheduled} Tasks Slotted into Working Time Windows
+                      <h4 className="font-headline-sm text-body-md font-bold text-on-surface">
+                        {rescheduleResult.totalRescheduled} Tasks Slotted into Daily Capacity Windows
                       </h4>
                     </div>
 
@@ -861,7 +1113,7 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                       <span className="material-symbols-outlined text-[16px]">
                         {isCommitting ? "sync" : "done_all"}
                       </span>
-                      <span>{isCommitting ? "Applying..." : "Apply Rescheduling to Database"}</span>
+                      <span>{isCommitting ? "Applying..." : "Apply to Task Board"}</span>
                     </button>
                   </div>
 
@@ -874,67 +1126,16 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                       {rescheduleResult.rescheduledTasks.map((item, idx) => (
                         <div
                           key={idx}
-                          className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/10 space-y-2 transition-all hover:border-primary/25"
+                          className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/10 space-y-2"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-secondary-fixed/40 text-secondary">
-                                {item.action?.replace(/_/g, " ")}
-                              </span>
-                              {item.priorityScore !== undefined && (
-                                <span className={`px-2 py-0.5 rounded font-mono font-bold ${
-                                  item.priorityScore >= 6.5
-                                    ? "bg-rose-500/15 text-rose-400"
-                                    : item.priorityScore >= 4.0
-                                    ? "bg-amber-500/15 text-amber-400"
-                                    : "bg-blue-500/15 text-blue-400"
-                                }`}>
-                                  Score: {item.priorityScore}
-                                </span>
-                              )}
-                              {item.requiresLlmSubdivision && (
-                                <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 font-medium flex items-center gap-0.5">
-                                  <span className="material-symbols-outlined text-[12px]">call_split</span>
-                                  <span>15m Sprints</span>
-                                </span>
-                              )}
-                            </div>
-
-                            <span className="font-tabular-mono text-primary font-semibold flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[14px]">schedule</span>
-                              <span>&rarr; {item.recommendedDay} {item.scheduledSlotStart ? `@ ${item.scheduledSlotStart}` : ""} ({item.newDuration || "30m"})</span>
+                            <span className="font-semibold text-primary">
+                              &rarr; {item.recommendedDay} ({item.newDuration || "30m"})
                             </span>
+                            <span className="text-outline">{item.newPriority}</span>
                           </div>
-
-                          <div className="flex items-start justify-between gap-2">
-                            <h5 className="font-semibold text-body-md text-on-surface">{item.newTitle}</h5>
-                            <span className="text-[11px] text-outline font-mono shrink-0">
-                              Urgency: {item.urgencyWeight || "-"} &bull; Deps: {item.dependencyCount ?? 0} &bull; Age: {item.ageDays ?? 1}d
-                            </span>
-                          </div>
-
+                          <h5 className="font-semibold text-body-md text-on-surface">{item.newTitle}</h5>
                           <p className="text-[12px] text-outline leading-snug">{item.reasoning}</p>
-
-                          {/* 15-minute Atomic Sprints Decomposed via LLM fallback */}
-                          {Array.isArray(item.subtasks) && item.subtasks.length > 0 && (
-                            <div className="pt-2 border-t border-outline-variant/10">
-                              <div className="text-[10px] font-bold text-outline uppercase tracking-wider mb-1 flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[12px] text-purple-400">psychology</span>
-                                <span>Atomic 15-Minute Sprints:</span>
-                              </div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {item.subtasks.map((st, si) => (
-                                  <span
-                                    key={si}
-                                    className="px-2 py-0.5 rounded bg-surface-container-high text-[11px] text-on-surface-variant font-mono flex items-center gap-1 border border-outline-variant/15"
-                                  >
-                                    <span>↳ {st.title}</span>
-                                    <span className="text-primary font-bold">({st.duration || "15m"})</span>
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       ))}
                     </div>
@@ -944,33 +1145,33 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* MODE 4: RESTRUCTURE COMPLEX GOAL */}
+          {/* MODE 4: GOAL REALIGNMENT */}
           {activeMode === "restructure_complex" && (
             <div className="space-y-4">
               <div className="bg-surface-container-low p-4 rounded-xl space-y-3 border border-outline-variant/10">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-label-md font-semibold text-on-surface mb-1">
-                      Complex Project / Roadmap to Pivot
+                      Goal to Adjust
                     </label>
                     <input
                       type="text"
                       value={goalInput}
                       onChange={(e) => setGoalInput(e.target.value)}
-                      placeholder="e.g. Core Successor Platform Refactoring"
+                      placeholder="e.g. Marathon Training Schedule"
                       className="w-full px-3.5 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none focus:ring-2 focus:ring-primary/20"
                     />
                   </div>
 
                   <div>
                     <label className="block text-label-md font-semibold text-on-surface mb-1">
-                      Trigger / Restructuring Reason
+                      Reason for Realignment
                     </label>
                     <input
                       type="text"
                       value={restructureReason}
                       onChange={(e) => setRestructureReason(e.target.value)}
-                      placeholder="e.g. Scope shift toward real-time AI & rapid keyboard workflows"
+                      placeholder="e.g. Shifting from intense pace to steady sustainable daily focus"
                       className="w-full px-3.5 py-2 bg-surface-container-lowest text-on-surface rounded-lg text-body-sm border border-outline-variant/15 outline-none focus:ring-2 focus:ring-primary/20"
                     />
                   </div>
@@ -984,9 +1185,9 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                     className="px-5 py-2.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-label-md font-semibold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
                     <span className={`material-symbols-outlined text-[18px] ${loading ? "animate-spin" : ""}`}>
-                      {loading ? "sync" : "account_tree"}
+                      {loading ? "sync" : "tune"}
                     </span>
-                    <span>{loading ? "Restructuring Architecture..." : "Generate Restructuring Architecture"}</span>
+                    <span>{loading ? "Re-aligning..." : "Re-align Goal Milestones"}</span>
                   </button>
                 </div>
               </div>
@@ -996,11 +1197,8 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                 <div className="p-5 rounded-2xl bg-surface-container-lowest border border-primary/20 shadow-sm space-y-4">
                   <div className="flex items-center justify-between pb-3 border-b border-outline-variant/10">
                     <div>
-                      <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
-                        Scope Adjustment: {restructureResult.scopeDelta}
-                      </span>
                       <h4 className="font-headline-sm text-body-md font-bold text-on-surface">
-                        Restructured Goal Plan
+                        Goal Realignment Plan
                       </h4>
                     </div>
 
@@ -1017,7 +1215,7 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                         <span>
                           {isCommitting
                             ? "Injecting..."
-                            : `Inject ${restructureResult.newTasksToInject.length} New Tasks to DB`}
+                            : `Inject ${restructureResult.newTasksToInject.length} Steps to Board`}
                         </span>
                       </button>
                     )}
@@ -1027,11 +1225,10 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                     {restructureResult.restructuringStrategy}
                   </p>
 
-                  {/* Tasks to Inject */}
                   {Array.isArray(restructureResult.newTasksToInject) && (
                     <div className="space-y-2">
                       <h5 className="text-[11px] font-bold uppercase tracking-wider text-outline">
-                        High-Impact Injections
+                        Fresh Action Steps
                       </h5>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {restructureResult.newTasksToInject.map((t, idx) => (
@@ -1040,7 +1237,7 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
                             className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/10"
                           >
                             <div className="flex items-center justify-between text-[11px] mb-1">
-                              <span className="font-semibold text-primary">{t.category}</span>
+                              <span className="font-semibold text-primary">{t.category || "Goal"}</span>
                               <span className="font-tabular-mono text-outline">{t.duration}</span>
                             </div>
                             <h6 className="font-semibold text-body-sm text-on-surface leading-snug">
@@ -1061,7 +1258,7 @@ export default function AiGoalPlannerModal({ isOpen, onClose }) {
         <div className="px-6 py-3.5 border-t border-surface-container flex items-center justify-between bg-surface-container-low text-[12px] text-outline shrink-0">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px] text-secondary">database</span>
-            <span>All tasks automatically sync &amp; maintain user interaction logs in Cloud Firestore</span>
+            <span>All tasks automatically sync &amp; maintain progress in Cloud Firestore</span>
           </div>
           <button
             type="button"

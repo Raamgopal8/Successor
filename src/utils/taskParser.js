@@ -10,11 +10,11 @@ export function parseNaturalLanguageTask(input = "", customLabels = []) {
       title: "",
       cleanTitle: "",
       priority: "P1 Urgent & High Impact",
-      category: "Work Sprint",
+      category: "Goal",
       duration: "30 min",
       durationMinutes: 30,
       effort: "⚡⚡ Med",
-      tags: ["#Task"],
+      tags: ["#Goal"],
       dueDate: "Today",
       matchedTokens: [],
     };
@@ -23,16 +23,29 @@ export function parseNaturalLanguageTask(input = "", customLabels = []) {
   let text = input.trim();
   const matchedTokens = [];
 
-  // 1. Extract Tags (#Frontend, #Sprint, #Design-System, etc.)
+  // 1. Extract Tags (#Goal, #PersonalGoal, #CareerGoal, #DailyFocus, etc.)
   const tagMatches = text.match(/#([a-zA-Z0-9_\-]+)/g);
   let tags = [];
   let category = null;
 
   if (tagMatches && tagMatches.length > 0) {
     tags = tagMatches.map((t) => (t.startsWith("#") ? t : `#${t}`));
-    // Use first tag without '#' as primary category name
-    const rawCat = tagMatches[0].replace("#", "").replace(/[-_]/g, " ");
-    category = rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+    // Normalize well-known goal tags to exact standard categories
+    const firstTagLower = tagMatches[0].replace("#", "").toLowerCase().replace(/[-_]/g, "");
+    if (firstTagLower === "personalgoal" || firstTagLower === "personal") {
+      category = "Personal Goal";
+    } else if (firstTagLower === "careergoal" || firstTagLower === "career") {
+      category = "Career Goal";
+    } else if (firstTagLower === "longterm" || firstTagLower === "longtermgoal") {
+      category = "Long Term";
+    } else if (firstTagLower === "dailyfocus" || firstTagLower === "focus") {
+      category = "Daily Focus";
+    } else if (firstTagLower === "goal") {
+      category = "Goal";
+    } else {
+      const rawCat = tagMatches[0].replace("#", "").replace(/[-_]/g, " ");
+      category = rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+    }
     matchedTokens.push({ type: "tag", value: tagMatches.join(" ") });
     // Remove tags from text
     text = text.replace(/#([a-zA-Z0-9_\-]+)/g, " ");
@@ -55,7 +68,7 @@ export function parseNaturalLanguageTask(input = "", customLabels = []) {
 
   // Default category fallback
   if (!category) {
-    category = "Work Sprint";
+    category = "Goal";
   }
   if (tags.length === 0) {
     tags = [`#${category.replace(/\s+/g, "")}`];

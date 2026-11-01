@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import image from "../assets/logo.png";
 import { useApp } from "../context/AppContext";
@@ -139,7 +139,7 @@ export default function Board() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskStatus, setNewTaskStatus] = useState("ready");
-  const [newTaskCategory, setNewTaskCategory] = useState("Work Sprint");
+  const [newTaskCategory, setNewTaskCategory] = useState("Goal");
   const [newTaskPriority, setNewTaskPriority] = useState("P1 Urgent & High Impact");
 
   // Phase 1: Quick Capture, Zen Deck, and Shortcuts Help States
@@ -209,11 +209,11 @@ export default function Board() {
     if (!newTaskTitle.trim()) return;
 
     const chosenPriority = newTaskPriority || (newTaskStatus === "ready" ? "P1 Urgent & High Impact" : "P2 Strategic");
-    const chosenCategory = newTaskCategory || "Work Sprint";
+    const chosenCategory = newTaskCategory || "Goal";
 
     const created = await createTask({
       title: newTaskTitle.trim(),
-      description: "Added directly from Sprint Board.",
+      description: "Added directly from Task Board.",
       status: newTaskStatus || "ready",
       category: chosenCategory,
       effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") ? "⚡⚡⚡ Deep" : "⚡⚡ Med",
@@ -246,7 +246,7 @@ export default function Board() {
   const displayTags =
     allAvailableTags.length > 0
       ? allAvailableTags
-      : ["#WorkSprint", "#Frontend", "#DeepWork", "#Backlog", "#Urgent"];
+      : ["#Goal", "#LongTerm", "#PersonalGoal", "#CareerGoal", "#DailyFocus"];
 
   const trimmedQuery = searchQuery.trim().toLowerCase();
 
@@ -304,14 +304,14 @@ export default function Board() {
     },
     {
       id: "act-ai-planner",
-      title: "AI Goal Planner & Task Generator",
-      subtitle: "Long-term goals, weekly sprints, rescheduling & restructuring",
+      title: "AI Goal Planner & Workplan Generator",
+      subtitle: "90-day daily workplans, weekly goals, rescheduling & realignments",
       icon: "psychology_alt",
       action: () => setShowAiPlanner(true),
     },
     {
       id: "act-new-kanban",
-      title: "Add Kanban Task",
+      title: "Add Board Task",
       subtitle: "Create a task in Backlog or Ready",
       icon: "add_task",
       action: () => setShowAddModal(true),
@@ -512,7 +512,7 @@ export default function Board() {
                 <div className="flex items-center justify-between px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group cursor-pointer">
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Work Sprint</span>
+                    <span className="truncate font-body-sm text-body-sm">Goal</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest">
                     {activeTasksCount}
@@ -521,7 +521,7 @@ export default function Board() {
                 <div className="flex items-center justify-between px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group cursor-pointer">
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-tertiary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Deep Work</span>
+                    <span className="truncate font-body-sm text-body-sm">Daily Focus</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest">
                     {highImpactCount}
@@ -538,7 +538,7 @@ export default function Board() {
               <span className="material-symbols-outlined text-[18px]">offline_bolt</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-label-sm text-label-sm text-on-surface truncate">Flow Velocity</p>
+              <p className="font-label-sm text-label-sm text-on-surface truncate">Flow</p>
               <p className="font-tabular-mono text-label-sm text-secondary font-semibold">
                 {flowVelocityScore}% Score
               </p>
@@ -697,7 +697,7 @@ export default function Board() {
                     <div className="p-2">
                       <div className="px-2 py-1 text-label-sm uppercase tracking-wider text-outline font-semibold flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-[14px]">view_column</span>
-                        Kanban Columns
+                        Board Columns
                       </div>
                       <div className="space-y-0.5 mt-1">
                         {matchingColumns.map((col) => {
@@ -809,7 +809,7 @@ export default function Board() {
                       close
                     </span>
                   </div>
-                  <span className="hidden sm:inline">Search across Kanban cards &amp; tags</span>
+                  <span className="hidden sm:inline">Search across tasks &amp; tags</span>
                 </div>
               </div>
             )}
@@ -888,7 +888,7 @@ export default function Board() {
                   </li>
                   <li aria-hidden="true" className="text-outline-variant select-none">/</li>
                   <li className="text-on-surface-variant font-medium">
-                    Sprint Workflow
+                    Goal Workflow
                   </li>
                   <li aria-hidden="true" className="text-outline-variant select-none">/</li>
                   <li className="flex items-center gap-1 text-on-surface font-semibold" aria-current="page">
@@ -898,7 +898,7 @@ export default function Board() {
                 </ol>
               </nav>
 
-              {/* Sprint Title Row */}
+              {/* Board Title Row */}
               <div className="flex flex-wrap items-center justify-between gap-space-md">
                 <div className="flex flex-col gap-1 min-w-0">
                   <div className="flex items-center gap-space-sm flex-wrap">
@@ -974,7 +974,7 @@ export default function Board() {
                     type="button"
                   >
                     <span className="material-symbols-outlined text-[16px] text-primary">view_kanban</span>
-                    <span>Kanban Board</span>
+                    <span>Task Board</span>
                   </button>
                   <Link
                     to="/dashboard"
@@ -1098,7 +1098,7 @@ export default function Board() {
                     </span>
                   </div>
                   <p className="font-body-sm text-[12px] text-outline mt-0.5">
-                    Decompose long-term goals, synthesize 7-day weekly sprints, reschedule missed rollovers, or restructure complex milestones.
+                    Generate 90-day daily workplans, plan weekly goals, reschedule pending tasks, or re-align milestones.
                   </p>
                 </div>
               </div>
@@ -1118,7 +1118,7 @@ export default function Board() {
             {/* Daily Workload Capacity Warning: Overload Guard */}
             <OverloadGuardMeter className="mb-space-md" />
 
-            {/* KANBAN COLUMNS + INSPECTOR DRAWER SPLIT */}
+            {/* TASK BOARD COLUMNS + INSPECTOR DRAWER SPLIT */}
             <div className="flex gap-space-lg items-start w-full min-h-[calc(100vh-230px)] overflow-x-auto pb-6">
               {/* 5 Column Canvas */}
               <div className="flex gap-space-md flex-1 min-w-[1040px] items-start">
@@ -1393,7 +1393,7 @@ export default function Board() {
                       </span>
                       <span className="text-outline text-label-sm">•</span>
                       <span className="text-on-surface-variant font-label-sm text-label-sm">
-                        Sprint Workspace
+                        Goal Workspace
                       </span>
                     </div>
                     <button

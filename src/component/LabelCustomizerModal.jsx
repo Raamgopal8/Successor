@@ -116,7 +116,7 @@ export default function LabelCustomizerModal({ isOpen, onClose }) {
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-label-sm text-label-sm font-semibold border ${previewStyle.bg} ${previewStyle.border}`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${previewStyle.dot}`} />
-                  {newLabelName.trim() || (newLabelType === "priority" ? "P1 Urgent" : "Sprint Label")}
+                  {newLabelName.trim() || (newLabelType === "priority" ? "P1 Urgent" : "Goal Label")}
                 </span>
               </div>
             </div>
@@ -130,7 +130,7 @@ export default function LabelCustomizerModal({ isOpen, onClose }) {
                   </label>
                   <input
                     type="text"
-                    placeholder={newLabelType === "priority" ? "e.g. P0 Blocker, Critical" : "e.g. Frontend, Design System"}
+                    placeholder={newLabelType === "priority" ? "e.g. High Priority, Critical" : "e.g. Goal, Long Term, Personal Goal, Career Goal"}
                     value={newLabelName}
                     onChange={(e) => setNewLabelName(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-surface-container-lowest text-on-surface outline-none border border-outline-variant/30 focus:border-primary text-body-sm"

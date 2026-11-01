@@ -15,12 +15,11 @@ import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 // Project colour palette — cycle through these for new/unknown categories
 const PROJECT_PALETTE = [
-  { bg: "bg-secondary", label: "Personal Rituals" },
-  { bg: "bg-primary", label: "Work Sprint" },
-  { bg: "bg-tertiary", label: "Deep Work" },
-  { bg: "bg-secondary-fixed-dim", label: "Health & Habits" },
-  { bg: "bg-error", label: "Research" },
-  { bg: "bg-outline", label: "Admin" },
+  { bg: "bg-primary", label: "Goal" },
+  { bg: "bg-purple-500", label: "Long Term" },
+  { bg: "bg-secondary", label: "Personal Goal" },
+  { bg: "bg-blue-500", label: "Career Goal" },
+  { bg: "bg-tertiary", label: "Daily Focus" },
 ];
 
 export default function Dashboard() {
@@ -174,7 +173,7 @@ export default function Dashboard() {
   // New task modal state
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskCategory, setNewTaskCategory] = useState("Work Sprint");
+  const [newTaskCategory, setNewTaskCategory] = useState("Goal");
   const [newTaskPriority, setNewTaskPriority] = useState("P1 Urgent & High Impact");
   const [newTaskDuration, setNewTaskDuration] = useState("30 min");
 
@@ -182,7 +181,7 @@ export default function Dashboard() {
   const [editingTask, setEditingTask] = useState(null);
   const [editTaskTitle, setEditTaskTitle] = useState("");
   const [editTaskDescription, setEditTaskDescription] = useState("");
-  const [editTaskCategory, setEditTaskCategory] = useState("Work Sprint");
+  const [editTaskCategory, setEditTaskCategory] = useState("Goal");
   const [editTaskPriority, setEditTaskPriority] = useState("P1 Urgent & High Impact");
   const [editTaskDuration, setEditTaskDuration] = useState("30 min");
 
@@ -310,7 +309,7 @@ export default function Dashboard() {
     if (!newTaskTitle.trim()) return;
 
     const chosenPriority = newTaskPriority || "P1 Urgent & High Impact";
-    const chosenCategory = newTaskCategory || "Work Sprint";
+    const chosenCategory = newTaskCategory || "Goal";
 
     await createTask({
       title: newTaskTitle.trim(),
@@ -318,7 +317,7 @@ export default function Dashboard() {
       category: chosenCategory,
       priority: chosenPriority,
       duration: newTaskDuration,
-      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") || chosenCategory === "Deep Work"
+      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") || chosenCategory === "Daily Focus"
         ? "⚡⚡⚡ Deep Focus"
         : "⚡ Light Effort",
       tags: [`#${chosenCategory.replace(/\s+/g, "")}`],
@@ -337,7 +336,7 @@ export default function Dashboard() {
     setEditingTask(task);
     setEditTaskTitle(task.title || "");
     setEditTaskDescription(task.description || "");
-    setEditTaskCategory(task.category || "Work Sprint");
+    setEditTaskCategory(task.category || "Goal");
     setEditTaskPriority(task.priority || "P1 Urgent & High Impact");
     setEditTaskDuration(task.duration || "30 min");
   };
@@ -347,7 +346,7 @@ export default function Dashboard() {
     if (!editingTask || !editTaskTitle.trim()) return;
 
     const chosenPriority = editTaskPriority || "P1 Urgent & High Impact";
-    const chosenCategory = editTaskCategory || "Work Sprint";
+    const chosenCategory = editTaskCategory || "Goal";
 
     const updatedFields = {
       title: editTaskTitle.trim(),
@@ -355,7 +354,7 @@ export default function Dashboard() {
       category: chosenCategory,
       priority: chosenPriority,
       duration: editTaskDuration.trim() || "30 min",
-      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") || chosenCategory === "Deep Work"
+      effort: chosenPriority?.includes("P1") || chosenPriority?.includes("Urgent") || chosenCategory === "Daily Focus"
         ? "⚡⚡⚡ Deep Focus"
         : "⚡ Light Effort",
     };
@@ -441,7 +440,7 @@ export default function Dashboard() {
   const displayTags =
     allAvailableTags.length > 0
       ? allAvailableTags
-      : ["#WorkSprint", "#DeepWork", "#Task", "#Urgent", "#Strategic", "#Research"];
+      : ["#Goal", "#LongTerm", "#PersonalGoal", "#CareerGoal", "#DailyFocus"];
 
   // Search keyword suggestions derived from available data
   const trimmedQuery = searchQuery.trim().toLowerCase();
@@ -473,9 +472,11 @@ export default function Dashboard() {
 
   // 3. Category / Project Suggestions
   const systemCategories = [
-    { key: "high-impact", label: "Work Sprint", desc: "Urgent & High Impact Focus", color: "bg-primary" },
-    { key: "quick-wins", label: "Deep Work", desc: "Strategic & Focused Tasks", color: "bg-tertiary" },
-    { key: "habits", label: "Personal Rituals", desc: "Daily Habits & Routines", color: "bg-secondary" },
+    { key: "goal", label: "Goal", desc: "Core Actionable Goals", color: "bg-primary" },
+    { key: "long-term", label: "Long Term", desc: "Long-Term Vision & Milestones", color: "bg-purple-500" },
+    { key: "personal-goal", label: "Personal Goal", desc: "Personal Growth & Wellbeing", color: "bg-secondary" },
+    { key: "career-goal", label: "Career Goal", desc: "Professional & Career Milestones", color: "bg-blue-500" },
+    { key: "daily-focus", label: "Daily Focus", desc: "High-Priority Daily Tasks", color: "bg-tertiary" },
   ];
   const matchingCategories = systemCategories.filter((c) =>
     trimmedQuery
@@ -495,7 +496,7 @@ export default function Dashboard() {
   const quickNavActions = [
     {
       id: "nav-board",
-      title: "Task Board (Kanban)",
+      title: "Task Board",
       subtitle: "Jump to 5-stage workflow board",
       icon: "view_kanban",
       action: () => navigate("/board"),
@@ -717,7 +718,7 @@ export default function Dashboard() {
       {
         id: "p1-array",
         label: "Priority 1 • High Impact & Highlights",
-        badge: "Immediate Sprint",
+        badge: "Immediate Focus",
         color: "from-rose-500/20 to-amber-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400",
         icon: "bolt",
         tasks: p1UrgentArray,
@@ -770,7 +771,7 @@ export default function Dashboard() {
         },
         {
           id: "deep-work",
-          defaultTitle: "Deep Work Sprint - 01",
+          defaultTitle: "Daily Focus Block - 01",
           subtitle: "Deep Focus (Peak ⚡)",
           start: 8.5,
           end: 12.5,
@@ -789,7 +790,7 @@ export default function Dashboard() {
         },
         {
           id: "collab",
-          defaultTitle: "Deep Work Sprint - 02",
+          defaultTitle: "Daily Focus Block - 02",
           subtitle: "Strategic Alignment",
           start: 13.5,
           end: 15.5,
@@ -892,7 +893,7 @@ export default function Dashboard() {
         },
         {
           id: "deep-work",
-          defaultTitle: "Night Flow Sprint",
+          defaultTitle: "Night Focus Block",
           subtitle: "Golden Window (Surge ⚡)",
           start: 17.0,
           end: 22.0,
@@ -911,7 +912,7 @@ export default function Dashboard() {
         },
         {
           id: "collab",
-          defaultTitle: "Deep Work Sprint - 02",
+          defaultTitle: "Daily Focus Block - 02",
           subtitle: "Creative Deep Focus",
           start: 22.75,
           end: 23.5,
@@ -967,7 +968,9 @@ export default function Dashboard() {
         tasks.find(
           (t) =>
             !t.completed &&
-            (t.category === "high-impact" ||
+            (t.category === "Daily Focus" ||
+              t.category === "Goal" ||
+              t.category === "high-impact" ||
               t.effort?.includes("Deep") ||
               t.priority?.includes("P1") ||
               t.priority?.includes("Urgent"))
@@ -979,7 +982,9 @@ export default function Dashboard() {
         tasks.find(
           (t) =>
             !t.completed &&
-            (t.category === "quick-wins" ||
+            (t.category === "Personal Goal" ||
+              t.category === "Career Goal" ||
+              t.category === "quick-wins" ||
               t.priority?.includes("P2") ||
               t.priority?.includes("Strategic"))
         )?.title || block.defaultTitle;
@@ -1202,7 +1207,7 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Work Sprint</span>
+                    <span className="truncate font-body-sm text-body-sm">Goal</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest group-hover:text-on-surface">
                     {activeTasksCount}
@@ -1218,7 +1223,7 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-tertiary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Deep Work</span>
+                    <span className="truncate font-body-sm text-body-sm">Daily Focus</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest group-hover:text-on-surface">
                     {highImpactCount}
@@ -1236,7 +1241,7 @@ export default function Dashboard() {
               <span className="material-symbols-outlined text-[18px]">offline_bolt</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-label-sm text-label-sm text-on-surface truncate">Flow Velocity</p>
+              <p className="font-label-sm text-label-sm text-on-surface truncate">Flow</p>
               <p className="font-tabular-mono text-label-sm text-secondary font-semibold">{flowVelocityScore}% Score</p>
             </div>
           </div>
@@ -1517,7 +1522,7 @@ export default function Dashboard() {
                         No results found for &ldquo;{searchQuery}&rdquo;
                       </p>
                       <p className="font-label-sm text-label-sm text-outline mt-0.5">
-                        Try searching for keywords like tasks, tags (#WorkSprint), or projects.
+                        Try searching for keywords like tasks, tags (#PersonalGoal, #DailyFocus), or projects.
                       </p>
                     </div>
                   )}
@@ -3636,9 +3641,9 @@ export default function Dashboard() {
                 </label>
                 <div className="grid grid-cols-3 gap-2.5">
                   {[
-                    { blocks: 3, label: "3 Blocks", sub: "Light / Agile" },
+                    { blocks: 3, label: "3 Blocks", sub: "Light / Steady" },
                     { blocks: 5, label: "5 Blocks", sub: "Balanced / Flow" },
-                    { blocks: 8, label: "8 Blocks", sub: "Intensive / Sprint" },
+                    { blocks: 8, label: "8 Blocks", sub: "Intensive / Deep Focus" },
                   ].map((opt) => (
                     <button
                       key={opt.blocks}

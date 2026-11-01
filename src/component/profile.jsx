@@ -45,10 +45,10 @@ export default function Profile() {
   const [displayName, setDisplayName] = useState("");
   const [displayTitle, setDisplayTitle] = useState("");
   const [email, setEmail] = useState("");
-  const [timezone, setTimezone] = useState("Pacific Time (PT) - UTC-8");
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [avatarUrl, setAvatarUrl] = useState("");
-  const [bio, setBio] = useState("Architecting high-focus cognitive workflows and deep focus rituals.");
-  const [websiteUrl, setWebsiteUrl] = useState("https://github.com/developer");
+  const [bio, setBio] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
 
   // Productivity Rhythms States
   const [chronotype, setChronotype] = useState("lark"); // 'lark' | 'falcon' | 'owl'
@@ -59,7 +59,7 @@ export default function Profile() {
   // Habits & Rituals States
   const [rolloverEnabled, setRolloverEnabled] = useState(true);
   const [briefingEnabled, setBriefingEnabled] = useState(true);
-  const [defaultProject, setDefaultProject] = useState("Work Sprint (Active)");
+  const [defaultProject, setDefaultProject] = useState("Goal (Active)");
   const [newHabitTitle, setNewHabitTitle] = useState("");
   const [newHabitDuration, setNewHabitDuration] = useState("15m");
   const [addingHabit, setAddingHabit] = useState(false);
@@ -531,7 +531,7 @@ export default function Profile() {
       tasks
         .filter((t) => !t.completed)
         .forEach((t) => {
-          md += `- **[${t.code || "TASK"}]** ${t.title} _(${t.duration || "30m"}, Priority: ${t.priority || "Normal"}, Project: ${t.project || "Work Sprint"})_\n`;
+          md += `- **[${t.code || "TASK"}]** ${t.title} _(${t.duration || "30m"}, Priority: ${t.priority || "Normal"}, Project: ${t.project || "Goal"})_\n`;
         });
       md += `\n## Completed Tasks (${completedTasksCount})\n\n`;
       tasks
@@ -544,7 +544,7 @@ export default function Profile() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `successor-sprint-summary-${new Date().toISOString().slice(0, 10)}.md`;
+      a.download = `successor-goal-summary-${new Date().toISOString().slice(0, 10)}.md`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -729,7 +729,7 @@ export default function Profile() {
     },
     {
       id: "pref-export-md",
-      title: "Export Sprint Report (Markdown)",
+      title: "Export Goal Report (Markdown)",
       subtitle: "Generate clean Markdown checklist of current work",
       icon: "description",
       tab: "data",
@@ -776,7 +776,7 @@ export default function Profile() {
     },
     {
       id: "nav-board",
-      title: "Sprint Kanban Board",
+      title: "Tasks Board",
       subtitle: "Manage 5-stage task workflow",
       icon: "view_kanban",
       action: () => navigate("/board"),
@@ -968,7 +968,7 @@ export default function Profile() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Work Sprint</span>
+                    <span className="truncate font-body-sm text-body-sm">Goal</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest">
                     {activeTasksCount}
@@ -980,7 +980,7 @@ export default function Profile() {
                 >
                   <div className="flex items-center gap-space-sm truncate">
                     <span className="w-2 h-2 rounded-full bg-tertiary flex-shrink-0" />
-                    <span className="truncate font-body-sm text-body-sm">Deep Work</span>
+                    <span className="truncate font-body-sm text-body-sm">Daily Focus</span>
                   </div>
                   <span className="font-tabular-mono text-label-sm text-outline px-1.5 py-0.5 rounded-full bg-surface-container-highest">
                     {highImpactCount}
@@ -997,7 +997,7 @@ export default function Profile() {
               <span className="material-symbols-outlined text-[18px]">offline_bolt</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-label-sm text-label-sm text-on-surface truncate">Energy Flow</p>
+              <p className="font-label-sm text-label-sm text-on-surface truncate">Flow</p>
               <p className="font-tabular-mono text-label-sm text-secondary font-semibold">
                 {flowVelocityScore}% Score
               </p>
@@ -1346,7 +1346,7 @@ export default function Profile() {
                             Personal &amp; Workstation Identity
                           </h2>
                           <p className="font-body-sm text-body-sm text-outline">
-                            Profile updates propagate in real time across Dashboard, Kanban Board &amp; Analytics
+                            Profile updates propagate in real time across Dashboard, Task Board &amp; Analytics
                           </p>
                         </div>
                       </div>
@@ -1553,10 +1553,10 @@ export default function Profile() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <h4 className="font-headline-sm text-headline-sm font-bold text-on-surface truncate">
-                            {displayName || "Elena Vance"}
+                            {displayName || "User"}
                           </h4>
                           <p className="font-body-sm text-body-sm text-outline truncate">
-                            {displayTitle || "Staff Product Designer"}
+                            {displayTitle || "Member"}
                           </p>
                           <span className="inline-block mt-1 text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
                             {timezone}
@@ -1564,9 +1564,11 @@ export default function Profile() {
                         </div>
                       </div>
 
-                      <p className="font-body-sm text-body-sm text-on-surface-variant italic border-l-2 border-primary/50 pl-3">
-                        &ldquo;{bio}&rdquo;
-                      </p>
+                      {bio && (
+                        <p className="font-body-sm text-body-sm text-on-surface-variant italic border-l-2 border-primary/50 pl-3">
+                          &ldquo;{bio}&rdquo;
+                        </p>
+                      )}
 
                       <div className="pt-3 border-t border-outline-variant/15 grid grid-cols-3 gap-2 text-center">
                         <div className="p-2 rounded-lg bg-surface-container-lowest/80">
@@ -1637,7 +1639,7 @@ export default function Profile() {
                           Chronotype Engine
                         </h2>
                         <p className="font-body-sm text-body-sm text-outline">
-                          Successor automatically balances demanding cognitive sprints around your biological energy peak
+                          Successor automatically balances demanding cognitive tasks around your biological energy peak
                         </p>
                       </div>
                     </div>
@@ -1769,7 +1771,7 @@ export default function Profile() {
                       <span>06:00 Warmup</span>
                       <span>10:00 Morning Peak</span>
                       <span>14:00 Recovery</span>
-                      <span>18:00 Twilight Sprint</span>
+                      <span>18:00 Twilight Focus</span>
                       <span>22:00 Wind-Down</span>
                     </div>
 
@@ -1789,7 +1791,7 @@ export default function Profile() {
                         <span className="truncate text-[11px] font-medium">Recovery &amp; Async</span>
                       </div>
                       <div className="w-[15%] bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed text-[10px] font-medium">
-                        Sprint
+                        Focus
                       </div>
                       <div className="w-[10%] bg-surface-container-high flex items-center justify-center text-outline text-[10px]">
                         Rest
@@ -1805,21 +1807,21 @@ export default function Profile() {
                         label: "25 min",
                         blocks: 3,
                         sub: "Classic Pomodoro",
-                        desc: "Short agile blocks for rapid task turnaround • 3 blocks target",
+                        desc: "Short focus blocks for steady task turnaround • 3 blocks target",
                       },
                       {
                         val: "50",
                         label: "50 min",
                         blocks: 5,
                         sub: "Deep Block (Recommended)",
-                        desc: "Optimal cognitive sweet spot for complex engineering • 5 blocks target",
+                        desc: "Optimal cognitive sweet spot for deep goal execution • 5 blocks target",
                       },
                       {
                         val: "90",
                         label: "90 min",
                         blocks: 8,
                         sub: "Flow State Immersion",
-                        desc: "Full ultradian rhythm immersion for deep architecture • 8 blocks target",
+                        desc: "Full ultradian rhythm immersion for long-term focus • 8 blocks target",
                       },
                     ].map((dur) => (
                       <div
@@ -2125,7 +2127,7 @@ export default function Profile() {
                             Smart Daily Rollover &amp; Backlog Sync
                           </p>
                           <p className="font-body-sm text-body-sm text-outline">
-                            Auto-moves unfinished tasks from today&apos;s sprint queue (Ready, In Progress, Review) to Backlog every day, and resets daily focus blocks &amp; habit counters to 0.
+                            Auto-moves unfinished tasks from today&apos;s daily queue (Ready, In Progress, Review) to Backlog every day, and resets daily focus blocks &amp; habit counters to 0.
                           </p>
                         </div>
                       </div>
@@ -2205,9 +2207,11 @@ export default function Profile() {
                           onChange={(e) => setDefaultProject(e.target.value)}
                           className="w-full px-3 py-2 bg-surface-container-low text-on-surface rounded-lg font-body-sm text-body-sm outline-none cursor-pointer"
                         >
-                          <option>Work Sprint (Active)</option>
-                          <option>Personal Commitments</option>
-                          <option>Deep Work Triage</option>
+                          <option>Goal (Active)</option>
+                          <option>Personal Goal</option>
+                          <option>Career Goal</option>
+                          <option>Long Term</option>
+                          <option>Daily Focus</option>
                         </select>
                       </div>
 
@@ -3412,10 +3416,10 @@ export default function Profile() {
                           <span className="material-symbols-outlined text-[22px]">description</span>
                         </div>
                         <h3 className="font-headline-sm text-headline-sm text-on-surface font-bold">
-                          Sprint Report (Markdown)
+                          Goal Progress Report 
                         </h3>
                         <p className="font-body-sm text-body-sm text-outline mt-1 leading-relaxed">
-                          Formatted Markdown document with interactive checklists, open tasks by sprint priority, and habits for seamless sharing in GitHub or Notion.
+                          Formatted Markdown document with interactive checklists, open tasks by priority, and habits for seamless sharing in your workspace.
                         </p>
                       </div>
                       <button
@@ -3478,7 +3482,7 @@ export default function Profile() {
                       </div>
                     </div>
                     <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-tabular-mono text-label-sm font-bold">
-                      v0.1.2 (Stable)
+                      v0.1.6 (Stable)
                     </span>
                   </div>
 
@@ -3490,7 +3494,7 @@ export default function Profile() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-body-md font-semibold text-on-surface">
-                            Release Channel: GitHub Releases
+                            Release : GitHub Releases
                           </span>
                           <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
@@ -3524,7 +3528,7 @@ export default function Profile() {
         {/* BOTTOM FLOATING STICKY ACTION BAR */}
         <div className="fixed bottom-0 left-64 right-0 z-40 bg-surface/90 backdrop-blur-xl px-space-lg py-3 flex items-center justify-between shadow-[0_-4px_16px_rgba(0,0,0,0.03)] border-t border-outline-variant/15">
           <div className="flex items-center gap-space-sm text-outline">
-            <span className="material-symbols-outlined text-secondary text-[20px]">cloud_done</span>
+            <span className="material-symbols-outlined text-secondary text-[20px]">Done</span>
             <span className="font-body-sm text-body-sm">
               {saveSuccess ? (
                 <span className="text-secondary font-bold">Preferences saved and synced to Cloud!</span>
