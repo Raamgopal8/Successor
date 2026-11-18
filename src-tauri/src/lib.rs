@@ -312,12 +312,8 @@ fn get_or_create_device_uuid(app: AppHandle) -> Result<DeviceUuidResponse, Strin
     })
 }
 
-/// Firebase App Check Debug Token (Registered in Firebase Console for fledgeportal)
-pub const DEFAULT_APP_CHECK_DEBUG_TOKEN: &str = "B2B852DC-14DD-4204-96E4-DDD011A0747A";
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppCheckConfig {
-    pub debug_token: String,
     pub project_id: String,
     pub api_key: String,
     pub app_id: String,
@@ -326,10 +322,15 @@ pub struct AppCheckConfig {
 #[tauri::command]
 fn get_app_check_config() -> AppCheckConfig {
     AppCheckConfig {
-        debug_token: DEFAULT_APP_CHECK_DEBUG_TOKEN.to_string(),
-        project_id: "fledgeportal".to_string(),
-        api_key: "AIzaSyCLAPwadPE7TDzrkZoH7ax_CrR6b3RP054".to_string(),
-        app_id: "1:844515198625:web:d1febaeabb62cc7756d2e0".to_string(),
+        project_id: option_env!("VITE_FIREBASE_PROJECT_ID")
+            .unwrap_or("successor-9f9c0")
+            .to_string(),
+        api_key: option_env!("VITE_FIREBASE_API_KEY")
+            .unwrap_or("")
+            .to_string(),
+        app_id: option_env!("VITE_FIREBASE_APP_ID")
+            .unwrap_or("")
+            .to_string(),
     }
 }
 
@@ -346,11 +347,6 @@ pub struct NativeAiResponse {
     pub content: String,
     pub model_used: String,
     pub debug_token_used: String,
-}
-
-#[tauri::command]
-fn get_app_check_debug_token() -> String {
-    DEFAULT_APP_CHECK_DEBUG_TOKEN.to_string()
 }
 
 // -----------------------------------------------------------------------------
@@ -654,6 +650,24 @@ fn rebalance_missed_tasks(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Fix Linux GLib/GIO schema mismatch:
+    // If running inside VS Code / Snap or an environment with an outdated GSETTINGS_SCHEMA_DIR,
+    // GTK crashes looking for keys like 'antialiasing' in org.gnome.settings-daemon.plugins.xsettings.
+    // Resetting or pointing to system schemas prevents this crash permanently.
+    #[cfg(target_os = "linux")]
+    {
+        use std::path::Path;
+        let should_set = match std::env::var("GSETTINGS_SCHEMA_DIR") {
+            Ok(dir) => dir.contains("snap") || !Path::new(&dir).join("gschemas.compiled").exists(),
+            Err(_) => true,
+        };
+        if should_set {
+            unsafe {
+                std::env::set_var("GSETTINGS_SCHEMA_DIR", "/usr/share/glib-2.0/schemas");
+            }
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -667,7 +681,6 @@ pub fn run() {
             get_circadian_peak,
             generate_uuid,
             get_or_create_device_uuid,
-            get_app_check_debug_token,
             get_app_check_config,
             rebalance_missed_tasks
         ])

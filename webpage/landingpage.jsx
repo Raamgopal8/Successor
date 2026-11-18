@@ -30,12 +30,6 @@ export default function LandingPage() {
         filename: "successor_0.1.7_amd64.deb",
         size: "12 MB",
       },
-      "linux-appimage": {
-        available: true,
-        url: "/downloads/successor-latest-linux.AppImage",
-        filename: "successor_0.1.7_amd64.AppImage",
-        size: "89 MB",
-      },
     },
   });
 
@@ -58,8 +52,7 @@ export default function LandingPage() {
   const currentVersion = `v${versionData.version}`;
   const windowsDownload = versionData.platforms?.windows?.url || "/downloads/successor-latest-windows-x64.exe";
   const linuxDebDownload = versionData.platforms?.["linux-deb"]?.url || "/downloads/successor-latest-linux.deb";
-  const linuxAppImageDownload = versionData.platforms?.["linux-appimage"]?.url || "/downloads/successor-latest-linux.AppImage";
-
+  
   return (
     <div style={styles.container}>
       {/* Background Glow */}
@@ -130,15 +123,6 @@ export default function LandingPage() {
               <span style={styles.btnMeta}>.deb (Ubuntu / Debian)</span>
             </div>
             <Download size={18} />
-          </a>
-
-          <a
-            href={linuxAppImageDownload}
-            download={versionData.platforms?.["linux-appimage"]?.filename || "successor_amd64.AppImage"}
-            style={styles.tertiaryButton}
-          >
-            <Download size={18} />
-            <span>Linux .AppImage</span>
           </a>
         </div>
 

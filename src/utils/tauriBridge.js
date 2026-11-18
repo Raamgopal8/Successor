@@ -153,7 +153,7 @@ export async function getNativeAppCheckToken() {
       console.warn("Tauri get_app_check_debug_token failed:", err);
     }
   }
-  return "B2B852DC-14DD-4204-96E4-DDD011A0747A";
+  return null;
 }
 
 /**
@@ -169,10 +169,9 @@ export async function getNativeAppCheckConfig() {
     }
   }
   return {
-    debug_token: "B2B852DC-14DD-4204-96E4-DDD011A0747A",
-    project_id: "fledgeportal",
-    api_key: "AIzaSyCLAPwadPE7TDzrkZoH7ax_CrR6b3RP054",
-    app_id: "1:844515198625:web:d1febaeabb62cc7756d2e0",
+    project_id: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    api_key: import.meta.env.VITE_FIREBASE_API_KEY,
+    app_id: import.meta.env.VITE_FIREBASE_APP_ID,
   };
 }
 
