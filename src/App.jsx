@@ -8,6 +8,7 @@ import Privacy from "./component/privacy";
 import Terms from "./component/terms";
 import UpdateModal from "./component/UpdateModal";
 import LoadingScreen from "./component/LoadingScreen";
+import LandingPage from "../webpage/landingpage";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AppProvider } from "./context/AppContext";
 
@@ -17,7 +18,9 @@ function App() {
       <Router>
         <UpdateModal />
         <Routes>
-          <Route path="/" element={<Login />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/download" element={<LandingPage />} />
+          <Route path="/login" element={<Login />} />
           <Route path="/loading" element={<LoadingScreen />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/board" element={<Board />} />
