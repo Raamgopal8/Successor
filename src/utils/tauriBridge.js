@@ -348,3 +348,49 @@ export async function rebalanceNativeMissedTasks(tasks, dailyCapacityHours = 4.0
     scheduled_tasks: scheduledTasks,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// RAG-Based Roadmap Plan — Tauri-only feature
+// Scrapes roadmap.sh & other sources via Rust, then calls Gemini
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a RAG-based N-day roadmap plan from the Rust backend.
+ * Uses roadmap.sh GitHub JSON as primary source, with 24h local cache.
+ *
+ * @param {string}  goal       - User's learning goal, e.g. "Learn Rust"
+ * @param {number}  nDays      - Number of days (30, 60, 90, or custom)
+ * @param {string}  [roadmapId]  - Optional explicit roadmap ID (e.g. "rust", "frontend")
+ * @param {string}  [apiKey]   - Gemini API key for RAG-enhanced generation
+ * @param {string}  [model]    - Gemini model override
+ * @returns {Promise<RoadmapPlanResult>}
+ */
+export async function fetchRoadmapPlan(goal, nDays = 90, roadmapId = "", apiKey = "", model = "gemini-2.0-flash") {
+  if (!isTauri()) {
+    return {
+      roadmap_source: "web-not-supported",
+      roadmap_id: "",
+      total_topics: 0,
+      n_days: nDays,
+      days: [],
+      fetched_at: new Date().toISOString(),
+      is_cached: false,
+      cache_warning: "Roadmap-based plan requires the Successor desktop app.",
+      error: "This feature is only available in the desktop app.",
+    };
+  }
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke("fetch_roadmap_plan", {
+      goal,
+      roadmapId: roadmapId || null,
+      nDays: Number(nDays),
+      apiKey: apiKey || null,
+      model: model || null,
+    });
+  } catch (err) {
+    console.warn("Tauri fetch_roadmap_plan failed:", err);
+    throw err;
+  }
+}

@@ -78,7 +78,7 @@ export default function Profile() {
       name: "Google Gemini REST",
       endpoint: "https://generativelanguage.googleapis.com",
       apiKey: "",
-      model: "gemini-3.8-flash",
+      model: "gemini-4-hydrogen",
       providerType: "gemini",
       isActive: true,
     },
@@ -88,7 +88,7 @@ export default function Profile() {
   const [configStatuses, setConfigStatuses] = useState({}); // { [configId]: { type, message, latencyMs } }
   const [aiApiKey, setAiApiKey] = useState("");
   const [aiProvider, setAiProvider] = useState("gemini");
-  const [aiModel, setAiModel] = useState("gemini-3.8-flash");
+  const [aiModel, setAiModel] = useState("gemini-4-hydrogen");
 
   // Theme & Appearance States
   const [theme, setTheme] = useState("dark"); // 'dark' | 'light' | 'system'

@@ -1,3 +1,6 @@
+mod roadmap_rag;
+pub use roadmap_rag::fetch_roadmap_plan;
+
 use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{Read, Write};
@@ -682,7 +685,8 @@ pub fn run() {
             generate_uuid,
             get_or_create_device_uuid,
             get_app_check_config,
-            rebalance_missed_tasks
+            rebalance_missed_tasks,
+            fetch_roadmap_plan
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

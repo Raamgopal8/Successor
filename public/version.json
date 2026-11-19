@@ -1,25 +1,19 @@
 {
-  "version": "0.1.7",
+  "version": "0.1.8",
   "releaseDate": "2026-11-18",
-  "notes": "Successor v0.1.7 release with auto-updater support and workflow enhancements.",
+  "notes": "Successor v0.1.8 release with auto-updater support and workflow enhancements.",
   "platforms": {
     "windows": {
       "available": true,
       "url": "/downloads/successor-latest-windows-x64.exe",
-      "filename": "Successor_0.1.7_x64-setup.exe",
+      "filename": "Successor_0.1.8_x64-setup.exe",
       "size": "~15 MB"
     },
     "linux-deb": {
       "available": true,
       "url": "/downloads/successor-latest-linux.deb",
-      "filename": "successor_0.1.7_amd64.deb",
+      "filename": "successor_0.1.8_amd64.deb",
       "size": "12 MB"
-    },
-    "linux-appimage": {
-      "available": true,
-      "url": "/downloads/successor-latest-linux.AppImage",
-      "filename": "successor_0.1.7_amd64.AppImage",
-      "size": "89 MB"
-    }
+    }   
   }
 }

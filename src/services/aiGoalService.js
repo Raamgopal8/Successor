@@ -15,6 +15,174 @@ let verifiedGeminiConfig = null; // { model: string, apiVersion: 'v1beta' | 'v1'
  * Dynamically queries Google ModelService.ListModels across v1beta and v1
  * to find all available models that support generateContent for the provided key.
  */
+
+export function generateLocalWorkplan({ goal, goalType = "Goal", dailyCommitment = "1 hour / day" }) {
+  const cleanGoal = (goal || "Core Goal").trim();
+
+  // Curated domain templates for highly specific, non-generic step breakdown
+  const isLanguage = /spanish|french|german|japanese|chinese|russian|language|vocab/i.test(cleanGoal);
+  const isFitness = /marathon|run|10k|5k|gym|workout|weight|muscle|fitness|diet|health/i.test(cleanGoal);
+  const isCoding = /saas|app|code|software|fullstack|react|python|rust|web|backend|mvp|project/i.test(cleanGoal);
+  const isCareer = /job|interview|career|resume|portfolio|promotion|design|leadership/i.test(cleanGoal);
+
+  // Month-by-month thematic focus areas with concrete weekly milestones
+  let phaseThemes = [
+    {
+      month: 1,
+      theme: "Foundations & Diagnostic Setup",
+      weeks: [
+        { w: 1, focus: "Baseline Assessment & Resource Curation", taskPrefix: "Audit current baseline, setup workspace & define weekly milestones for" },
+        { w: 2, focus: "Fundamental Drills & Core Mechanics", taskPrefix: "Master core building blocks and daily drills for" },
+        { w: 3, focus: "Habit Stacking & Initial Production", taskPrefix: "Execute hands-on guided practice session for" },
+        { w: 4, focus: "First Milestone Review & Retrospective", taskPrefix: "Consolidate Month 1 output, review weak points & self-test on" },
+      ],
+    },
+    {
+      month: 2,
+      theme: "Deep Immersion & Targeted Acceleration",
+      weeks: [
+        { w: 5, focus: "Intermediate Techniques & Speed Building", taskPrefix: "Deep dive into complex scenarios and accelerated workflows for" },
+        { w: 6, focus: "Real-world Project Implementation", taskPrefix: "Build standalone component/deliverable module for" },
+        { w: 7, focus: "Stress Testing & Endurance Cadence", taskPrefix: "Simulate high-pressure practice or timed sprint for" },
+        { w: 8, focus: "Midpoint Portfolio / Proof-of-Work Check", taskPrefix: "Evaluate benchmark scores, polish artifacts & debug bottlenecks in" },
+      ],
+    },
+    {
+      month: 3,
+      theme: "Mastery, Polish & Long-term Retention",
+      weeks: [
+        { w: 9, focus: "Advanced Edge Cases & Synthesis", taskPrefix: "Tackle advanced edge-case challenges and refine precision in" },
+        { w: 10, focus: "Comprehensive Simulation & Peer Review", taskPrefix: "Execute full end-to-end dry run and gather external feedback on" },
+        { w: 11, focus: "Final Optimization & Polishing Sprint", taskPrefix: "Streamline final delivery, eliminate friction points in" },
+        { w: 12, focus: "Grand Milestone Launch & Maintenance Rituals", taskPrefix: "Final milestone achievement, celebration & recurring maintenance ritual for" },
+      ],
+    },
+  ];
+
+  if (isFitness) {
+    phaseThemes[0].weeks[0].taskPrefix = "Lactate threshold baseline test, gait analysis & pacing audit for";
+    phaseThemes[0].weeks[1].taskPrefix = "Base aerobic zone 2 conditioning & stride cadence drills for";
+    phaseThemes[0].weeks[2].taskPrefix = "Strength cross-training, mobility drills & hill repeats for";
+    phaseThemes[0].weeks[3].taskPrefix = "Benchmark timed time-trial & recovery protocol check for";
+    phaseThemes[1].weeks[0].taskPrefix = "Progressive interval speedwork & tempo threshold run for";
+    phaseThemes[1].weeks[1].taskPrefix = "Extended long run pacing & electrolyte hydration strategy for";
+    phaseThemes[1].weeks[2].taskPrefix = "Negative split pacing drills & VO2 max interval session for";
+    phaseThemes[1].weeks[3].taskPrefix = "Mid-program distance peak test & recovery audit for";
+    phaseThemes[2].weeks[0].taskPrefix = "Race-pace rehearsal, nutrition timing & course topography prep for";
+    phaseThemes[2].weeks[1].taskPrefix = "Tapering protocol: decrease mileage volume, maintain intensity for";
+    phaseThemes[2].weeks[2].taskPrefix = "Pre-race carb loading strategy, mental rehearsal & kit check for";
+    phaseThemes[2].weeks[3].taskPrefix = "Event completion, target pace execution & post-race recovery for";
+  } else if (isCoding) {
+    phaseThemes[0].weeks[0].taskPrefix = "Architecture blueprint, repo initialization & CI/CD pipeline setup for";
+    phaseThemes[0].weeks[1].taskPrefix = "Data modeling, schema migrations & core CRUD API implementation for";
+    phaseThemes[0].weeks[2].taskPrefix = "Responsive frontend state machine & layout scaffolding for";
+    phaseThemes[0].weeks[3].taskPrefix = "End-to-end authentication, secure session handling & audit for";
+    phaseThemes[1].weeks[0].taskPrefix = "Core business logic algorithms & external API integrations for";
+    phaseThemes[1].weeks[1].taskPrefix = "Interactive dashboard visualization, caching & optimistic updates for";
+    phaseThemes[1].weeks[2].taskPrefix = "Automated integration testing suite & unit coverage boost for";
+    phaseThemes[1].weeks[3].taskPrefix = "Staging deployment, load testing & database query optimization for";
+    phaseThemes[2].weeks[0].taskPrefix = "UI/UX polish, zero-latency micro-interactions & accessibility audit for";
+    phaseThemes[2].weeks[1].taskPrefix = "Beta user onboarding flow, error boundaries & telemetry logging for";
+    phaseThemes[2].weeks[2].taskPrefix = "Production infrastructure provisioning, domain & SSL readiness for";
+    phaseThemes[2].weeks[3].taskPrefix = "Official public product release, changelog publish & monitoring for";
+  } else if (isLanguage) {
+    phaseThemes[0].weeks[0].taskPrefix = "Phonetics mastery, pronunciation mouth mechanics & top 100 verbs for";
+    phaseThemes[0].weeks[1].taskPrefix = "High-frequency core vocabulary flashcards & present tense drills for";
+    phaseThemes[0].weeks[2].taskPrefix = "Sentence construction patterns & active listening immersion for";
+    phaseThemes[0].weeks[3].taskPrefix = "First 5-minute unscripted conversational audio recording in";
+    phaseThemes[1].weeks[0].taskPrefix = "Past tense (preterite vs imperfect) grammar drills & short story reading for";
+    phaseThemes[1].weeks[1].taskPrefix = "Live 30-min conversation exchange with native speaker on";
+    phaseThemes[1].weeks[2].taskPrefix = "Podcast transcription, shadow speaking & slang comprehension for";
+    phaseThemes[1].weeks[3].taskPrefix = "Intermediate comprehension milestone: watch a full TV episode in";
+    phaseThemes[2].weeks[0].taskPrefix = "Subjunctive mood, idiomatic expressions & debate practice in";
+    phaseThemes[2].weeks[1].taskPrefix = "Professional vocabulary, email writing & reading news articles in";
+    phaseThemes[2].weeks[2].taskPrefix = "Full 45-minute continuous conversation without English translation in";
+    phaseThemes[2].weeks[3].taskPrefix = "Fluency benchmark certification test & daily immersion habit lock for";
+  }
+
+  const days = 90;
+  const tasks = [];
+  const baseStart = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  for (let i = 1; i <= days; i++) {
+    const targetDate = new Date(baseStart);
+    targetDate.setDate(baseStart.getDate() + (i - 1));
+    const dateStr = `${targetDate.getFullYear()}-${pad(targetDate.getMonth() + 1)}-${pad(targetDate.getDate())}`;
+    const dayName = dayNames[targetDate.getDay()];
+
+    const monthStage = i <= 30 ? 1 : i <= 60 ? 2 : 3;
+    const currentPhase = phaseThemes[monthStage - 1];
+    const weekInQuarter = Math.min(12, Math.ceil(i / 7.5));
+    const currentWeekInfo = currentPhase.weeks.find((w) => w.w === weekInQuarter) || currentPhase.weeks[0];
+
+    const dayInWeek = ((i - 1) % 7) + 1;
+    const isRestOrReview = dayInWeek === 7;
+    const isMilestone = i % 15 === 0 || i === 1 || i === 90;
+
+    let title = "";
+    let description = "";
+
+    if (isMilestone) {
+      title = `🎯 Milestone ${Math.ceil(i / 15)}: Benchmark & Review for "${cleanGoal}"`;
+      description = `Milestone evaluation: Validate tangible progress, inspect retention/performance metrics, and recalibrate next sprint for "${cleanGoal}".`;
+    } else if (isRestOrReview) {
+      title = `Day ${i}: Weekly Review & Adaptive Planning (${currentWeekInfo.focus})`;
+      description = `Consolidate this week's progress, identify friction points, and prepare scheduled focus sessions for the upcoming week.`;
+    } else {
+      title = `Day ${i}: ${currentWeekInfo.taskPrefix} "${cleanGoal}" (Part ${dayInWeek})`;
+      description = `Focus block (${dailyCommitment}): Deep concentration on ${currentWeekInfo.focus}. Complete actionable subtasks with measurable progress.`;
+    }
+
+    tasks.push({
+      dayNumber: i,
+      dayOffset: i - 1,
+      date: dateStr,
+      dayName,
+      monthStage,
+      stageTitle: `Month ${monthStage}: ${currentPhase.theme}`,
+      title,
+      description,
+      category: goalType || "Goal",
+      priority: isMilestone ? "P1 Urgent & High Impact" : isRestOrReview ? "P3 Maintenance" : "P2 Strategic",
+      duration: isRestOrReview ? "30 min" : dailyCommitment.includes("2+") ? "90 min" : "45 min",
+      effort: isMilestone ? "⚡⚡⚡ Deep" : isRestOrReview ? "⚡ Light" : "⚡⚡ Med",
+      tags: [`#${(goalType || "Goal").replace(/\s+/g, "")}`, `#Day${i}`, `#Month${monthStage}`],
+      isHighlight: isMilestone,
+      subtasks: isRestOrReview
+        ? [
+            { title: "Review tasks completed this week", duration: "10m" },
+            { title: "Identify bottlenecks & adjust next week's focus", duration: "15m" },
+            { title: "Organize materials & clear workstation", duration: "5m" },
+          ]
+        : [
+            { title: `Clarify day ${i} deliverable & setup environment`, duration: "10m" },
+            { title: `Core focused execution block on ${cleanGoal}`, duration: "30m" },
+            { title: `Validate outcome & document daily takeaway`, duration: "10m" },
+          ],
+      isAiGenerated: false,
+    });
+  }
+
+  const startIso = `${baseStart.getFullYear()}-${pad(baseStart.getMonth() + 1)}-${pad(baseStart.getDate())}`;
+
+  return {
+    goal: cleanGoal,
+    goalType,
+    dailyCommitment,
+    startDate: startIso,
+    totalDays: days,
+    tasks,
+    stages: [
+      { stage: 1, title: `Month 1: ${phaseThemes[0].theme}`, dayRange: "Days 1–30" },
+      { stage: 2, title: `Month 2: ${phaseThemes[1].theme}`, dayRange: "Days 31–60" },
+      { stage: 3, title: `Month 3: ${phaseThemes[2].theme}`, dayRange: "Days 61–90" },
+    ],
+    summary: `Structured, non-generic 90-day execution roadmap for "${cleanGoal}".`,
+  };
+}
+
 export async function discoverGeminiModels(apiKey) {
   if (!apiKey || !apiKey.trim()) return { models: [], error: "" };
   const cleanKey = apiKey.trim();
@@ -65,7 +233,13 @@ export async function discoverGeminiModels(apiKey) {
 // Map user-selected or futuristic model IDs to active Google Gemini REST API endpoints
 export function resolveGeminiModelId(modelName = "") {
   const m = (modelName || "").toLowerCase().trim().replace(/^models\//, "");
-  // Map Gemini 3.8 / 3 series to the active frontier flash endpoint
+
+  if (m === "gemini-4-hydrogen" || m.startsWith("gemini-4-hydrogen")) {
+    return "gemini-4-hydrogen";
+  }
+  if (m.startsWith("gemini-4-argon") || m === "gemini-2.5-pro") {
+    return "gemini-2.0-flash";
+  }
   if (
     m === "gemini-3.8-flash" ||
     m === "gemini-3.8" ||
@@ -74,9 +248,6 @@ export function resolveGeminiModelId(modelName = "") {
     m === "gemini-3" ||
     m.startsWith("gemini-3")
   ) {
-    return "gemini-2.0-flash";
-  }
-  if (m.startsWith("gemini-4-argon") || m.startsWith("gemini-4-argon") || m === "gemini-2.5-pro") {
     return "gemini-2.0-flash";
   }
   if (m === "gemini-2.5-flash") {
@@ -95,7 +266,7 @@ export function resolveGeminiModelId(modelName = "") {
   if (m === "gemini-1.5-pro" || m === "gemini-1.5-pro-latest") {
     return "gemini-2.0-flash";
   }
-  return m || "gemini-2.0-flash";
+  return m || "gemini-4-hydrogen";
 }
 
 // Helper to sanitize JSON response from LLMs that might wrap in ```json ... ```
@@ -148,7 +319,7 @@ export function extractJsonFromResponse(rawText = "") {
  */
 export async function callAiModel({
   provider = "gemini",
-  model = "gemini-3.8-flash",
+  model = "gemini-4-hydrogen",
   apiKey = "",
   endpoint = "",
   systemPrompt = "",
@@ -165,13 +336,14 @@ export async function callAiModel({
   const cleanKey = apiKey.trim();
 
   if (provider === "gemini") {
-    const rawCleanModel = (model || "gemini-3.8-flash").replace(/^models\//, "");
+    const rawCleanModel = (model || "gemini-4-hydrogen").replace(/^models\//, "");
     const resolvedModel = resolveGeminiModelId(rawCleanModel).replace(/^models\//, "");
 
     // Prioritized candidate list
     const candidates = [
       resolvedModel,
-      "gemini-3.8-flash",
+      "gemini-4-hydrogen",
+      "gemini-2.0-flash",
     ];
 
     const candidatePairs = [];
@@ -225,6 +397,16 @@ export async function callAiModel({
 
         if (res.status === 400 && (msg.includes("API_KEY_INVALID") || msg.includes("API key not valid"))) {
           throw new Error(`Invalid Gemini API Key: ${msg}`);
+        }
+
+        if (res.status === 403) {
+          if (msg.includes("Generative Language API has not been used") || msg.includes("disabled")) {
+            throw new Error(`Gemini 403 (API Disabled): The Generative Language API is disabled for this project. Enable it at https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com or enter a free Gemini API key from https://aistudio.google.com/apikey`);
+          }
+          if (msg.includes("blocked") || msg.includes("restricted")) {
+            throw new Error(`Gemini 403 (Key Restricted): The current API key is restricted from accessing Gemini Generative Language API. Please enter an unrestricted Gemini API key from https://aistudio.google.com/apikey`);
+          }
+          throw new Error(`Gemini 403 (Forbidden): ${msg}. Please ensure the Generative Language API is enabled or connect your Gemini API key from https://aistudio.google.com/apikey`);
         }
 
         if (res.status === 404 || msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("not supported")) {
@@ -419,7 +601,7 @@ export async function testAiKeyConnectivity({ provider = "gemini", apiKey = "", 
     const cleanKey = apiKey.trim();
 
     if (provider === "gemini") {
-      const rawCleanModel = (model || "gemini-3.8-flash").replace(/^models\//, "");
+      const rawCleanModel = (model || "gemini-4-hydrogen").replace(/^models\//, "");
       const resolvedModel = resolveGeminiModelId(rawCleanModel).replace(/^models\//, "");
 
       // Step 1: Discover available models for this key across v1beta and v1
@@ -442,8 +624,8 @@ export async function testAiKeyConnectivity({ provider = "gemini", apiKey = "", 
         const initial = Array.from(new Set([
           resolvedModel,
           rawCleanModel,
-          "gemini-3.8-flash",
-          "gemini-3.7-flash",
+          "gemini-4-hydrogen",
+          "gemini-2.0-flash",
         ]));
         for (const m of initial) {
           targetCandidates.push({ id: m, apiVersion: "v1beta" });
@@ -674,11 +856,15 @@ export async function generate90DayWorkplan({
       message: `Generating ${h.title}...`,
     });
 
-    const systemPrompt = `You are a world-class Goal Strategist and Daily Execution Planner for Successor.
-Your mission is to generate a day-by-day actionable task plan for ${h.title}.
-Generate 1 focused, high-impact task for EACH day from Day ${h.startDay} to Day ${h.endDay} (exactly 30 days).
-Use simple, clear terms: Goal, Long Term, Personal Goal, Career Goal.
-DO NOT use overly technical IT jargon. Every task must be realistic, motivating, and concrete.
+    const systemPrompt = `You are an elite Goal Strategist, Curriculum Designer, and Daily Execution Architect for Successor.
+Your mission is to generate a progressive, non-generic, 100% concrete day-by-day roadmap for ${h.title}.
+
+CRITICAL QUALITY STANDARDS:
+1. NO GENERIC TITLES: NEVER write titles like "Day X: Progress on Goal" or "Continue Work on Goal". Every single day must have a distinct, concrete, deliverable-driven action step (e.g., "Build Auth JWT Middleware", "10x Zone-2 Cadence Interval", "Read Chapters 3-4 & Flashcard 25 Subjunctive Verbs").
+2. LOGICAL CHRONOLOGICAL PROGRESSION: Tasks must logically build on prior days (e.g. Day 1: Audit & Scaffolding -> Day 2: Core Skeleton -> Day 10: Integration -> Day 15: Milestone Testing).
+3. ATOMIC SUBTASKS: Provide 3 concrete subtasks with realistic durations summing to approximately the daily commitment (${dailyCommitment}).
+4. MILESTONES: Designate major benchmark days (every 7 to 10 days) with isHighlight: true.
+5. USER-FRIENDLY CATEGORIES: Use simple, clear categories: "Goal", "Long Term", "Personal Goal", or "Career Goal".
 
 SCHEMA:
 {
@@ -687,8 +873,8 @@ SCHEMA:
   "dailyTasks": [
     {
       "day": number (${h.startDay} to ${h.endDay}),
-      "title": string (Clear, actionable daily task title),
-      "description": string (1-2 sentences on what to do),
+      "title": string (Distinct, specific, actionable deliverable),
+      "description": string (Concise explanation of what to accomplish today and why),
       "category": "Goal" | "Long Term" | "Personal Goal" | "Career Goal",
       "priority": "P1 Urgent & High Impact" | "P2 Strategic" | "P3 Maintenance",
       "duration": "30 min" | "45 min" | "60 min",
@@ -703,12 +889,12 @@ SCHEMA:
 }`;
 
     const userPrompt = `Primary Goal: "${goal}"
-Goal Type: "${goalType}"
+Goal Category: "${goalType}"
 Daily Time Commitment: "${dailyCommitment}"
-Current Planning Stage: "${h.title}" (Days ${h.startDay} through ${h.endDay})
-Stage Focus: ${h.focus}
+Planning Stage: "${h.title}" (Days ${h.startDay} through ${h.endDay})
+Strategic Stage Focus: ${h.focus}
 
-Generate the 30 daily tasks for this stage. Ensure day numbers run from ${h.startDay} to ${h.endDay}. Return strict JSON.`;
+Generate all 30 unique, progressive daily steps for Days ${h.startDay} through ${h.endDay}. Ensure zero repetitive titles. Return strict JSON.`;
 
     let stageTasks = [];
     try {
@@ -724,9 +910,13 @@ Generate the 30 daily tasks for this stage. Ensure day numbers run from ${h.star
 
       if (Array.isArray(res?.dailyTasks)) {
         stageTasks = res.dailyTasks;
+      } else if (Array.isArray(res?.tasks)) {
+        stageTasks = res.tasks;
       }
     } catch (err) {
       console.warn(`Error generating ${h.title}:`, err);
+      // Surface real error if it failed so user is informed
+      throw err;
     }
 
     // Ensure all 30 days in this range exist with calculated dates
@@ -849,10 +1039,14 @@ Perform an in-depth goal analysis using friendly, motivating terms. Return the s
  * assigning them to specific days with durations, priorities, tags, and atomic subtasks.
  */
 export async function generateWeeklyTasks({ goal, phase, activeTasks = [], credentials, daysRange = 7 }) {
-  const systemPrompt = `You are a thoughtful Goal & Task Planner for Successor.
-Your task is to generate a motivating, highly actionable weekly schedule of tasks (next 7 days).
-Use simple, clear terms: Goal, Long Term, Personal Goal, Career Goal.
-Avoid IT-only workflow terms. Every task MUST be concrete, atomic (15m to 60m), and immediately doable.
+  const systemPrompt = `You are an elite Goal Execution Coach and Sprint Planner for Successor.
+Your task is to generate a tactical 7-day sprint plan of concrete, non-generic daily tasks.
+
+CRITICAL INSTRUCTIONS:
+1. Every task must be actionable and distinct with a specific tangible outcome. Never use generic titles like "Progress on Goal" or "Continue Work".
+2. Match tasks to natural weekly cadence (e.g., Monday kickoff, midweek deep-work blocks, Friday review/sprint demo, weekend habit reflection).
+3. Assign atomic, realistic subtasks with durations summing to 30-60 minutes.
+4. Use standard user-friendly categories: "Goal", "Long Term", "Personal Goal", or "Career Goal".
 
 SCHEMA:
 {
@@ -879,16 +1073,16 @@ SCHEMA:
 }`;
 
   const existingTaskSummary = activeTasks
-    .slice(0, 10)
-    .map((t) => `- [${t.status}] ${t.title} (${t.priority || "Task"})`)
+    .slice(0, 8)
+    .map((t) => `- [${t.status}] ${t.title}`)
     .join("\n");
 
-  const userPrompt = `Goal to Pursue: "${goal}"
-Current Phase: "${phase || "Building Consistency & Progress"}"
-Already Existing Tasks in Workspace:
+  const userPrompt = `Target Goal: "${goal}"
+Sprint Focus Phase: "${phase || "High-Impact Execution & Measurable Progress"}"
+Active Workspace Tasks for Context:
 ${existingTaskSummary || "None"}
 
-Generate ${daysRange}-day goal workload (8 to 14 granular daily tasks across the week). Return structured JSON.`;
+Generate an inspiring, highly specific 7-day daily sprint plan (${daysRange} distinct daily tasks). Ensure zero repetitive headings. Return valid JSON.`;
 
   return callAiModel({
     provider: credentials.provider,
