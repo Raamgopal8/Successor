@@ -44,7 +44,7 @@
       "endpoints": [
         "https://github.com/Raamgopal8/Successor/releases/latest/download/latest.json"
       ],
-      "pubkey": "$ENV{TAURI_SIGNING_PUBLIC_KEY}"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMzNUNCOTQ5N0NDNTU0NDIKUldSQ1ZNVjhTYmxjTTduUkNTKzZXRzk4Y2M4L2JtTTZZNlNmS2xDQjZ6YjAxSDZrWFUzdm1lVnYK"
     }
   }
 }
